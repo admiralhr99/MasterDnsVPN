@@ -1,0 +1,134 @@
+# Server and Client settings update file
+
+# Optimized for low-end servers and clients
+
+# Provides balanced speed and stability under current conditions
+
+# Extremely high resolver scan speed and accuracy
+
+# Reasonable internet usage and low resource consumption
+
+# Client specifications: 2 cores, 2GB RAM
+
+# Server specifications: 1 core, 1GB RAM
+
+# ==============================================================================
+# MasterDnsVPN Go Client Configuration (Nima optimazation)
+# ==============================================================================
+# ------------------------------------------------------------------------------
+# 1) Tunnel Identity & Security
+# ------------------------------------------------------------------------------
+DOMAINS = [""]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = ""
+# ------------------------------------------------------------------------------
+# 2) Local Proxy Listener
+# ------------------------------------------------------------------------------
+PROTOCOL_TYPE = "SOCKS5"
+LISTEN_IP = "0.0.0.0"
+LISTEN_PORT = 18000
+SOCKS5_AUTH = false
+SOCKS5_USER = ""
+SOCKS5_PASS = ""
+# ------------------------------------------------------------------------------
+# 3) Local DNS Service
+# ------------------------------------------------------------------------------
+LOCAL_DNS_ENABLED = false
+LOCAL_DNS_IP = "127.0.0.1"
+LOCAL_DNS_PORT = 53
+LOCAL_DNS_CACHE_MAX_RECORDS = 20000
+LOCAL_DNS_CACHE_TTL_SECONDS = 28800.0
+LOCAL_DNS_PENDING_TIMEOUT_SECONDS = 600.0
+DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 120.0
+LOCAL_DNS_CACHE_PERSIST_TO_FILE = true
+LOCAL_DNS_CACHE_FLUSH_INTERVAL_SECONDS = 120.0
+# ------------------------------------------------------------------------------
+# 4) Resolver Selection, Duplication, and Health (Ultra Stable)
+# ------------------------------------------------------------------------------
+RESOLVER_BALANCING_STRATEGY = 3
+PACKET_DUPLICATION_COUNT = 2
+SETUP_PACKET_DUPLICATION_COUNT = 4
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 5
+STREAM_RESOLVER_FAILOVER_COOLDOWN = 5.0
+RECHECK_INACTIVE_SERVERS_ENABLED = true
+RECHECK_INACTIVE_INTERVAL_SECONDS = 50.0
+RECHECK_SERVER_INTERVAL_SECONDS = 5.0
+RECHECK_BATCH_SIZE = 12
+AUTO_DISABLE_TIMEOUT_SERVERS = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 30.0
+AUTO_DISABLE_MIN_OBSERVATIONS = 7
+AUTO_DISABLE_CHECK_INTERVAL_SECONDS = 4.0
+BASE_ENCODE_DATA = false
+# ------------------------------------------------------------------------------
+# 5) Compression (ZSTD - Optimized)
+# ------------------------------------------------------------------------------
+UPLOAD_COMPRESSION_TYPE = 1
+DOWNLOAD_COMPRESSION_TYPE = 1
+COMPRESSION_MIN_SIZE = 120
+# ------------------------------------------------------------------------------
+# 6) MTU Discovery (Maximum)
+# ------------------------------------------------------------------------------
+MIN_UPLOAD_MTU = 38
+MIN_DOWNLOAD_MTU = 500
+MAX_UPLOAD_MTU = 150
+MAX_DOWNLOAD_MTU = 1300
+MTU_TEST_RETRIES = 3
+MTU_TEST_TIMEOUT = 2
+MTU_TEST_PARALLELISM = 80
+SAVE_MTU_SERVERS_TO_FILE = false
+MTU_SERVERS_FILE_NAME = "masterdnsvpn_success_test_{time}.log"
+MTU_SERVERS_FILE_FORMAT = "{IP} - UP: {UP_MTU} DOWN: {DOWN-MTU}"
+MTU_USING_SECTION_SEPARATOR_TEXT = ""
+MTU_REMOVED_SERVER_LOG_FORMAT = "Resolver {IP} removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT = "Resolver {IP} added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+# ------------------------------------------------------------------------------
+# 7) Runtime Workers, Queues, and Timers (Ultra Performance)
+# ------------------------------------------------------------------------------
+RX_TX_WORKERS = 2
+TUNNEL_PROCESS_WORKERS = 1
+TUNNEL_PACKET_TIMEOUT_SECONDS = 60.0
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005
+TX_CHANNEL_SIZE = 4048
+RX_CHANNEL_SIZE = 4048
+RESOLVER_UDP_CONNECTION_POOL_SIZE = 24
+STREAM_QUEUE_INITIAL_CAPACITY = 64
+ORPHAN_QUEUE_INITIAL_CAPACITY = 24
+DNS_RESPONSE_FRAGMENT_STORE_CAPACITY = 256
+SOCKS_UDP_ASSOCIATE_READ_TIMEOUT_SECONDS = 180.0
+CLIENT_TERMINAL_STREAM_RETENTION_SECONDS = 180.0
+CLIENT_CANCELLED_SETUP_RETENTION_SECONDS = 360.0
+SESSION_INIT_RETRY_BASE_SECONDS = 0.5
+SESSION_INIT_RETRY_STEP_SECONDS = 0.5
+SESSION_INIT_RETRY_LINEAR_AFTER = 3
+SESSION_INIT_RETRY_MAX_SECONDS = 160.0
+SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 160.0
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.1
+PING_LAZY_INTERVAL_SECONDS = 0.3
+PING_COOLDOWN_INTERVAL_SECONDS = 3.0
+PING_COLD_INTERVAL_SECONDS = 30.0
+PING_WARM_THRESHOLD_SECONDS = 3.0
+PING_COOL_THRESHOLD_SECONDS = 10.0
+PING_COLD_THRESHOLD_SECONDS = 20.0
+# ------------------------------------------------------------------------------
+# 8) ARQ Reliability & Packing (Ultra Performance)
+# ------------------------------------------------------------------------------
+MAX_PACKETS_PER_BATCH = 900
+ARQ_WINDOW_SIZE = 2500
+ARQ_INITIAL_RTO_SECONDS = 0.25
+ARQ_MAX_RTO_SECONDS = 12.0
+ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.3
+ARQ_CONTROL_MAX_RTO_SECONDS = 6.0
+ARQ_MAX_CONTROL_RETRIES = 4000
+ARQ_INACTIVITY_TIMEOUT_SECONDS = 7200.0
+ARQ_DATA_PACKET_TTL_SECONDS = 12000.0
+ARQ_CONTROL_PACKET_TTL_SECONDS = 6000.0
+ARQ_MAX_DATA_RETRIES = 30000
+ARQ_DATA_NACK_MAX_GAP = 128
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.2
+ARQ_DATA_NACK_REPEAT_SECONDS = 0.3
+ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS = 360.0
+ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 300.0
+# ------------------------------------------------------------------------------
+# 9) Logging
+# ------------------------------------------------------------------------------
+LOG_LEVEL = "INFO"

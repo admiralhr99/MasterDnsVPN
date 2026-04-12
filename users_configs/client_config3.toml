@@ -1,0 +1,196 @@
+# MasterDnsVPN client and server config files — April 5 version
+
+# Build: v2026.04.05.191930-7757d2d
+
+#
+
+# If you’re using newer versions, you can reuse the shared/common values from these configs.
+
+# For any new parameters that were added in later versions (and are not present in my files), leave them as the default Master values.
+
+#
+
+# Friends, this version has been tested and monitored on both server and client sides.
+
+# You won’t run into traffic or resource bottlenecks, neither on the server nor on the client.
+
+#
+
+# Tested cases:
+
+# YouTube 360p streaming without even 1 second of interruption
+
+# Telegram file downloads and normal web browsing
+
+#
+
+# Server specs: 1 CPU core + 1GB RAM
+
+# Client specs: 8 cores 4.7GHz + 16GB DDR5 RAM
+
+#
+
+# On mobile devices, if CPU usage stays at 100% during use, you can reduce the number of workers.
+
+# If you plan to use it on mobile, make sure to change the Local DNS port to 5353.
+
+#
+
+# Windows client — April 5 version:
+
+# [https://dl.toolschi.com/up/2ef39084cfa19a2a.zip](https://dl.toolschi.com/up/2ef39084cfa19a2a.zip)
+
+#
+
+# Linux client — April 5 version:
+
+# [https://dl.toolschi.com/up/00a53b2661808c84.zip](https://dl.toolschi.com/up/00a53b2661808c84.zip)
+
+#
+
+# Server zip file — April 5 version:
+
+# [https://dl.toolschi.com/up/c7a85ab3b9842dd3.zip](https://dl.toolschi.com/up/c7a85ab3b9842dd3.zip)
+
+#
+
+# Don’t forget to restart the client every 40 minutes to 1 hour! ❤️
+
+# ==============================================================================
+# MasterDnsVPN Go Client Configuration Nima optimazation
+# Optimized for: Maximum Throughput, Zero Latency, High Stability
+# Strategy: Push Hardware Limits, Minimize Overhead, Maximize Packet Flow
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1) Tunnel Identity & Security
+# ------------------------------------------------------------------------------
+DOMAINS = [""]
+DATA_ENCRYPTION_METHOD = 1
+ENCRYPTION_KEY = ""
+
+# ------------------------------------------------------------------------------
+# 2) Local Proxy Listener
+# ------------------------------------------------------------------------------
+PROTOCOL_TYPE = "SOCKS5"
+LISTEN_IP = "127.0.0.1"
+LISTEN_PORT = 1080  
+SOCKS5_AUTH = false
+SOCKS5_USER = ""
+SOCKS5_PASS = ""
+
+# ------------------------------------------------------------------------------
+# 3) Local DNS Service (Ultra-Fast Caching)
+# ------------------------------------------------------------------------------
+LOCAL_DNS_ENABLED = true
+LOCAL_DNS_IP = "127.0.0.1"
+LOCAL_DNS_PORT = 53
+LOCAL_DNS_CACHE_MAX_RECORDS = 20000 # 
+LOCAL_DNS_CACHE_TTL_SECONDS = 14400.0
+LOCAL_DNS_PENDING_TIMEOUT_SECONDS = 60.0
+DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 30.0
+LOCAL_DNS_CACHE_PERSIST_TO_FILE = false
+LOCAL_DNS_CACHE_FLUSH_INTERVAL_SECONDS = 600.0
+
+# ------------------------------------------------------------------------------
+# 4) Resolver Selection, Duplication, and Health
+# ------------------------------------------------------------------------------
+RESOLVER_BALANCING_STRATEGY = 3
+PACKET_DUPLICATION_COUNT = 2
+SETUP_PACKET_DUPLICATION_COUNT = 2
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 5
+STREAM_RESOLVER_FAILOVER_COOLDOWN = 15.0
+RECHECK_INACTIVE_SERVERS_ENABLED = true
+RECHECK_INACTIVE_INTERVAL_SECONDS = 30.0
+RECHECK_SERVER_INTERVAL_SECONDS = 2.0
+RECHECK_BATCH_SIZE = 60 
+AUTO_DISABLE_TIMEOUT_SERVERS = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 120.0
+AUTO_DISABLE_MIN_OBSERVATIONS = 3
+AUTO_DISABLE_CHECK_INTERVAL_SECONDS = 5.0
+BASE_ENCODE_DATA = false
+
+# ------------------------------------------------------------------------------
+# 5) Compression
+# ------------------------------------------------------------------------------
+UPLOAD_COMPRESSION_TYPE = 1
+DOWNLOAD_COMPRESSION_TYPE = 1
+COMPRESSION_MIN_SIZE = 150
+
+# ------------------------------------------------------------------------------
+# 6) MTU Discovery (Minimal Interference)
+# ------------------------------------------------------------------------------
+MIN_UPLOAD_MTU = 40
+MIN_DOWNLOAD_MTU = 800
+MAX_UPLOAD_MTU = 50
+MAX_DOWNLOAD_MTU = 900
+MTU_TEST_RETRIES = 1
+MTU_TEST_TIMEOUT = 1.5
+MTU_TEST_PARALLELISM = 10 # کاهش به حداقل برای عدم تداخل با ترافیک اصلی
+SAVE_MTU_SERVERS_TO_FILE = false
+MTU_SERVERS_FILE_NAME = "masterdnsvpn_success_test_{time}.log"
+MTU_SERVERS_FILE_FORMAT = "{IP} - UP: {UP_MTU} DOWN: {DOWN-MTU}"
+MTU_USING_SECTION_SEPARATOR_TEXT = ""
+MTU_REMOVED_SERVER_LOG_FORMAT = "Resolver {IP} removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT = "Resolver {IP} added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+
+# ------------------------------------------------------------------------------
+# 7) Runtime Workers, Queues, and Timers (MAX PERFORMANCE TUNING)
+# ------------------------------------------------------------------------------
+# 
+RX_TX_WORKERS = 8
+TUNNEL_PROCESS_WORKERS = 8
+TUNNEL_PACKET_TIMEOUT_SECONDS = 20.0 
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005 
+
+
+TX_CHANNEL_SIZE = 8192
+RX_CHANNEL_SIZE = 8192
+
+RESOLVER_UDP_CONNECTION_POOL_SIZE = 256 
+STREAM_QUEUE_INITIAL_CAPACITY = 1024   
+ORPHAN_QUEUE_INITIAL_CAPACITY = 256
+DNS_RESPONSE_FRAGMENT_STORE_CAPACITY = 1024
+
+SOCKS_UDP_ASSOCIATE_READ_TIMEOUT_SECONDS = 90.0
+CLIENT_TERMINAL_STREAM_RETENTION_SECONDS = 30.0
+CLIENT_CANCELLED_SETUP_RETENTION_SECONDS = 60.0
+
+SESSION_INIT_RETRY_BASE_SECONDS = 0.25   
+SESSION_INIT_RETRY_STEP_SECONDS = 0.25
+SESSION_INIT_RETRY_LINEAR_AFTER = 3
+SESSION_INIT_RETRY_MAX_SECONDS = 5.0     
+SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 15.0
+
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.600 # 
+PING_LAZY_INTERVAL_SECONDS = 0.600
+PING_COOLDOWN_INTERVAL_SECONDS = 1.5
+PING_COLD_INTERVAL_SECONDS = 12.0
+PING_WARM_THRESHOLD_SECONDS = 3.0
+PING_COOL_THRESHOLD_SECONDS = 8.0
+PING_COLD_THRESHOLD_SECONDS = 15.0
+
+# ------------------------------------------------------------------------------
+# 8) ARQ Reliability & Packing (High Throughput Tuning)
+# ------------------------------------------------------------------------------
+MAX_PACKETS_PER_BATCH = 128 
+ARQ_WINDOW_SIZE = 12000     
+ARQ_INITIAL_RTO_SECONDS = 0.1 
+ARQ_MAX_RTO_SECONDS = 1.0
+ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.2
+ARQ_CONTROL_MAX_RTO_SECONDS = 1.0
+ARQ_MAX_CONTROL_RETRIES = 20
+ARQ_INACTIVITY_TIMEOUT_SECONDS = 600.0
+ARQ_DATA_PACKET_TTL_SECONDS = 1800.0
+ARQ_CONTROL_PACKET_TTL_SECONDS = 900.0
+ARQ_MAX_DATA_RETRIES = 200 
+ARQ_DATA_NACK_MAX_GAP = 256 
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.1
+ARQ_DATA_NACK_REPEAT_SECONDS = 0.1
+ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS = 60.0
+ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 60.0
+
+# ------------------------------------------------------------------------------
+# 9) Logging
+# ------------------------------------------------------------------------------
+LOG_LEVEL = "INFO"
