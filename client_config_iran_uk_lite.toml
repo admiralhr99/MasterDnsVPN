@@ -1,0 +1,191 @@
+# ==============================================================================
+# MasterDnsVPN — Lite Client Config for Iran → UK VPS  (2-core / 2 GB RAM)
+# ==============================================================================
+# Use this file on a weak Iran VPS (2 CPU cores, 2 GB RAM).
+# Differences from client_config_iran_uk.toml (the 4-core profile):
+#
+#   RX_TX_WORKERS          = 2   (was 4) — fits on 2 physical cores
+#   TUNNEL_PROCESS_WORKERS = 4   (was 8) — 2× RX/TX, not 4×
+#   DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030  (was 0.005)
+#       0.005 (5 ms) burns a full core just polling.  30 ms is plenty for
+#       interactive traffic (YouTube 360p, Telegram) on a weak VPS.
+#   RX_CHANNEL_SIZE = 2048   (was 4096) — saves ~300 KB RAM
+#   UPLOAD_COMPRESSION_TYPE   = 0   (was 1 ZSTD) — saves CPU on uplink
+#   DOWNLOAD_COMPRESSION_TYPE = 1   (ZSTD) — server does the work, keep it
+#   PING_COLD_INTERVAL_SECONDS = 10.0  (was 8.0) — slightly lazier idle ping
+#
+# All other values (MTU, ARQ, balancing) are identical to the 4-core profile.
+# The server config (server_config_iran_uk.toml) works unchanged for both.
+#
+# HOW TO USE:
+#   ./client -config client_config_iran_uk_lite.toml -resolvers client_resolvers.simple
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1) Tunnel Identity & Security
+# XOR (method 1) is near-zero CPU cost and still obfuscates traffic from DPI.
+# ------------------------------------------------------------------------------
+DOMAINS = [""]   # Fill in your tunnel domain — must match server DOMAIN.
+
+# 0=None  1=XOR  2=ChaCha20  3=AES-128-GCM  4=AES-192-GCM  5=AES-256-GCM
+DATA_ENCRYPTION_METHOD = 1
+
+ENCRYPTION_KEY = ""   # Must match server key file.
+
+
+# ------------------------------------------------------------------------------
+# 2) Local Proxy Listener
+# ------------------------------------------------------------------------------
+PROTOCOL_TYPE = "SOCKS5"
+LISTEN_IP     = "127.0.0.1"
+LISTEN_PORT   = 1080
+
+SOCKS5_AUTH = false
+SOCKS5_USER = "master_dns_vpn"
+SOCKS5_PASS = "master_dns_vpn"
+
+
+# ------------------------------------------------------------------------------
+# 3) Local DNS Service
+# ------------------------------------------------------------------------------
+LOCAL_DNS_ENABLED  = true
+LOCAL_DNS_IP       = "127.0.0.1"
+LOCAL_DNS_PORT     = 53   # Use 5353 on mobile.
+
+LOCAL_DNS_CACHE_MAX_RECORDS       = 5000
+LOCAL_DNS_CACHE_TTL_SECONDS       = 14400.0
+LOCAL_DNS_PENDING_TIMEOUT_SECONDS = 120.0
+LOCAL_DNS_CACHE_PERSIST_TO_FILE   = true
+LOCAL_DNS_CACHE_FLUSH_INTERVAL_SECONDS = 60.0
+
+DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
+
+
+# ------------------------------------------------------------------------------
+# 4) Resolver Selection, Duplication, and Health
+# ------------------------------------------------------------------------------
+RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
+
+PACKET_DUPLICATION_COUNT       = 2
+SETUP_PACKET_DUPLICATION_COUNT = 2
+
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 5
+STREAM_RESOLVER_FAILOVER_COOLDOWN         = 15.0
+
+RECHECK_INACTIVE_SERVERS_ENABLED    = true
+AUTO_DISABLE_TIMEOUT_SERVERS        = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 120.0
+
+BASE_ENCODE_DATA = false
+
+
+# ------------------------------------------------------------------------------
+# 5) Compression
+# Upload compression disabled to save CPU on the weak Iran VPS.
+# Download compression kept — the UK server does the ZSTD work, not us.
+# If CPU is still overloaded, set DOWNLOAD_COMPRESSION_TYPE = 0 as well.
+# ------------------------------------------------------------------------------
+# 0=OFF  1=ZSTD  2=LZ4  3=ZLIB
+UPLOAD_COMPRESSION_TYPE   = 0   # OFF — saves CPU on 2-core VPS.
+DOWNLOAD_COMPRESSION_TYPE = 1   # ZSTD — server compresses, we just decompress.
+
+COMPRESSION_MIN_SIZE = 150
+
+
+# ------------------------------------------------------------------------------
+# 6) MTU Discovery (same as 4-core profile — MTU is path-dependent, not CPU)
+# ------------------------------------------------------------------------------
+MIN_UPLOAD_MTU   = 40
+MAX_UPLOAD_MTU   = 50    # Avoids Iran DPI on DNS query labels.
+
+MIN_DOWNLOAD_MTU = 800
+MAX_DOWNLOAD_MTU = 900   # Large responses are fine from UK servers.
+
+MTU_TEST_RETRIES     = 2
+MTU_TEST_TIMEOUT     = 2.0
+MTU_TEST_PARALLELISM = 100   # Lower than 4-core (150) to avoid CPU spike during scan.
+
+SAVE_MTU_SERVERS_TO_FILE = false
+MTU_SERVERS_FILE_NAME    = "masterdnsvpn_success_test_{time}.log"
+MTU_SERVERS_FILE_FORMAT  = "{IP} ({DOMAIN}) - UP: {UP_MTU} DOWN: {DOWN-MTU}"
+MTU_USING_SECTION_SEPARATOR_TEXT  = ""
+MTU_REMOVED_SERVER_LOG_FORMAT     = "Resolver {IP} ({DOMAIN}) removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT       = "Resolver {IP} ({DOMAIN}) added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+
+
+# ------------------------------------------------------------------------------
+# 7) Runtime Workers, Queues, and Timers
+#
+# Workers scaled to 2 physical cores:
+#   RX_TX_WORKERS = 2 — one goroutine per core for network I/O.
+#   TUNNEL_PROCESS_WORKERS = 4 — 2× RX/TX for processing headroom.
+#
+# DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030:
+#   5 ms polling (default) burns an entire CPU core even when idle.
+#   30 ms adds at most ~30 ms latency per idle wake, which is imperceptible
+#   on a 200 ms RTT path.
+# ------------------------------------------------------------------------------
+RX_TX_WORKERS          = 2    # One per physical core.
+TUNNEL_PROCESS_WORKERS = 4    # 2× RX/TX.
+
+TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
+
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030   # 30 ms — low CPU on 2-core.
+
+RX_CHANNEL_SIZE = 2048   # Smaller buffer saves RAM; still enough for bursts.
+
+# 25 s pool age — safely under Iranian NAT expiry (30–60 s).
+RESOLVER_UDP_CONN_MAX_AGE_SECONDS = 25.0
+
+SOCKS_UDP_ASSOCIATE_READ_TIMEOUT_SECONDS  = 30.0
+CLIENT_TERMINAL_STREAM_RETENTION_SECONDS  = 30.0
+CLIENT_CANCELLED_SETUP_RETENTION_SECONDS  = 60.0
+
+SESSION_INIT_RETRY_BASE_SECONDS    = 1.0
+SESSION_INIT_RETRY_STEP_SECONDS    = 1.0
+SESSION_INIT_RETRY_LINEAR_AFTER    = 3
+SESSION_INIT_RETRY_MAX_SECONDS     = 30.0
+SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
+
+SESSION_INIT_RACING_COUNT = 3
+
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400
+PING_LAZY_INTERVAL_SECONDS       = 0.800
+PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
+PING_COLD_INTERVAL_SECONDS       = 10.0   # Slightly lazier than 4-core (8 s).
+
+PING_WARM_THRESHOLD_SECONDS = 3.0
+PING_COOL_THRESHOLD_SECONDS = 8.0
+PING_COLD_THRESHOLD_SECONDS = 15.0
+
+
+# ------------------------------------------------------------------------------
+# 8) ARQ Reliability & Packing  (identical to 4-core profile)
+# ------------------------------------------------------------------------------
+MAX_PACKETS_PER_BATCH = 45
+
+ARQ_WINDOW_SIZE                 = 5000
+ARQ_INITIAL_RTO_SECONDS         = 0.2
+ARQ_MAX_RTO_SECONDS             = 1.5
+ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.4
+ARQ_CONTROL_MAX_RTO_SECONDS     = 2.0
+ARQ_MAX_CONTROL_RETRIES         = 200
+
+ARQ_INACTIVITY_TIMEOUT_SECONDS  = 1800.0
+ARQ_DATA_PACKET_TTL_SECONDS     = 2400.0
+ARQ_CONTROL_PACKET_TTL_SECONDS  = 1200.0
+ARQ_MAX_DATA_RETRIES            = 2000
+
+ARQ_DATA_NACK_MAX_GAP               = 64
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.5
+ARQ_DATA_NACK_REPEAT_SECONDS        = 0.5
+
+ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS    = 120.0
+ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
+
+
+# ------------------------------------------------------------------------------
+# 9) Logging
+# ------------------------------------------------------------------------------
+LOG_LEVEL = "INFO"
