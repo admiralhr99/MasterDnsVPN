@@ -79,6 +79,7 @@ type ClientConfig struct {
 	PingCoolThresholdSeconds              float64           `toml:"PING_COOL_THRESHOLD_SECONDS"`
 	PingColdThresholdSeconds              float64           `toml:"PING_COLD_THRESHOLD_SECONDS"`
 	RXChannelSize                         int               `toml:"RX_CHANNEL_SIZE"`
+	ResolverUDPConnMaxAgeSec              float64           `toml:"RESOLVER_UDP_CONN_MAX_AGE_SECONDS"`
 	DNSResponseFragmentTimeoutSeconds     float64           `toml:"DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS"`
 	SOCKSUDPAssociateReadTimeoutSeconds   float64           `toml:"SOCKS_UDP_ASSOCIATE_READ_TIMEOUT_SECONDS"`
 	ClientTerminalStreamRetentionSeconds  float64           `toml:"CLIENT_TERMINAL_STREAM_RETENTION_SECONDS"`
@@ -177,6 +178,7 @@ func defaultClientConfig() ClientConfig {
 		PingCoolThresholdSeconds:              20.0,
 		PingColdThresholdSeconds:              30.0,
 		RXChannelSize:                         4096,
+		ResolverUDPConnMaxAgeSec:              25.0,
 		DNSResponseFragmentTimeoutSeconds:     60.0,
 		SOCKSUDPAssociateReadTimeoutSeconds:   30.0,
 		ClientTerminalStreamRetentionSeconds:  45.0,
@@ -446,6 +448,7 @@ func finalizeClientConfig(cfg ClientConfig) (ClientConfig, error) {
 	cfg.PingCoolThresholdSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingCoolThresholdSeconds, 20.0), cfg.PingWarmThresholdSeconds, 1800.0)
 	cfg.PingColdThresholdSeconds = clampFloat(defaultFloatAtMostZero(cfg.PingColdThresholdSeconds, 30.0), cfg.PingCoolThresholdSeconds, 3600.0)
 	cfg.RXChannelSize = clampInt(defaultIntBelow(cfg.RXChannelSize, 1, 4096), 64, 65536)
+	cfg.ResolverUDPConnMaxAgeSec = clampFloat(defaultFloatAtMostZero(cfg.ResolverUDPConnMaxAgeSec, 25.0), 5.0, 300.0)
 	cfg.DNSResponseFragmentTimeoutSeconds = clampFloat(defaultFloatAtMostZero(cfg.DNSResponseFragmentTimeoutSeconds, 60.0), 1.0, 600.0)
 	cfg.SOCKSUDPAssociateReadTimeoutSeconds = clampFloat(defaultFloatAtMostZero(cfg.SOCKSUDPAssociateReadTimeoutSeconds, 30.0), 1.0, 3600.0)
 	cfg.ClientTerminalStreamRetentionSeconds = clampFloat(defaultFloatAtMostZero(cfg.ClientTerminalStreamRetentionSeconds, 45.0), 1.0, 3600.0)
@@ -577,6 +580,10 @@ func (c ClientConfig) PingCoolThreshold() time.Duration {
 
 func (c ClientConfig) PingColdThreshold() time.Duration {
 	return time.Duration(c.PingColdThresholdSeconds * float64(time.Second))
+}
+
+func (c ClientConfig) ResolverUDPConnMaxAge() time.Duration {
+	return time.Duration(c.ResolverUDPConnMaxAgeSec * float64(time.Second))
 }
 
 func (c ClientConfig) DNSResponseFragmentTimeout() time.Duration {

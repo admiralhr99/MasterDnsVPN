@@ -1,0 +1,201 @@
+# ==============================================================================
+# MasterDnsVPN — Optimized Server Config for Iran → UK VPS
+# ==============================================================================
+# Deploy this file on your UK VPS (the DNS tunnel server).
+# Paired with client_config_iran_uk.toml on the Iran VPS.
+#
+# Tuned for: serving one or a few clients over high-latency (150–300 ms),
+#            moderate-to-heavy packet loss (5–25 %) paths.
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1) Tunnel Policy
+# ------------------------------------------------------------------------------
+
+DOMAIN = ["v.domain.com"]   # Must match client DOMAINS exactly.
+
+PROTOCOL_TYPE = "SOCKS5"   # Clients specify their own destinations.
+
+# Allow all compression types so the client can negotiate the best one.
+SUPPORTED_UPLOAD_COMPRESSION_TYPES   = [0, 1, 2, 3]
+SUPPORTED_DOWNLOAD_COMPRESSION_TYPES = [0, 1, 2, 3]
+
+
+# ------------------------------------------------------------------------------
+# 2) UDP Listener & Front-Door Capacity
+# The UK VPS handles the DNS tunnel traffic from Iran clients.
+# Socket buffer is large (8 MB) to absorb bursts caused by retransmission storms.
+# ------------------------------------------------------------------------------
+
+UDP_HOST = "0.0.0.0"
+UDP_PORT = 53
+
+# Worker counts.  For a small VPS (1–2 cores) serving a few clients:
+UDP_READERS         = 4
+DNS_REQUEST_WORKERS = 8
+MAX_CONCURRENT_REQUESTS = 16384
+
+# 8 MB socket buffer absorbs bursts on lossy paths.
+SOCKET_BUFFER_SIZE = 8388608
+MAX_PACKET_SIZE    = 65535
+
+DROP_LOG_INTERVAL_SECONDS = 2.0
+
+
+# ------------------------------------------------------------------------------
+# 3) Deferred Session Runtime
+# ------------------------------------------------------------------------------
+
+DEFERRED_SESSION_WORKERS    = 4
+DEFERRED_SESSION_QUEUE_LIMIT = 4096
+
+
+# ------------------------------------------------------------------------------
+# 4) Session Lifecycle & Invalid-Cookie Handling
+# Extended retention to survive the long RTTs and session re-init races that
+# happen on lossy Iran→UK paths.
+# ------------------------------------------------------------------------------
+
+INVALID_COOKIE_WINDOW_SECONDS    = 2.0
+INVALID_COOKIE_ERROR_THRESHOLD   = 10
+
+# Generous session timeout: even an idle session with only pings (every 8 s)
+# keeps this counter reset.
+SESSION_TIMEOUT_SECONDS          = 300.0
+SESSION_CLEANUP_INTERVAL_SECONDS = 30.0
+CLOSED_SESSION_RETENTION_SECONDS = 600.0
+
+# Reuse TTL: allows the client to re-send the same init packet if the first
+# SESSION_ACCEPT is lost (common on lossy links).
+SESSION_INIT_REUSE_TTL_SECONDS     = 600.0
+
+RECENTLY_CLOSED_STREAM_TTL_SECONDS = 600.0
+RECENTLY_CLOSED_STREAM_CAP         = 2000
+TERMINAL_STREAM_RETENTION_SECONDS  = 45.0
+
+
+# ------------------------------------------------------------------------------
+# 5) DNS Tunnel Upstream
+# Use Cloudflare or any reliable resolver from the UK VPS.
+# DNS_UPSTREAM_TIMEOUT is slightly generous to handle resolver latency.
+# ------------------------------------------------------------------------------
+
+DNS_UPSTREAM_SERVERS = ["1.1.1.1:53", "1.0.0.1:53", "8.8.8.8:53"]
+DNS_UPSTREAM_TIMEOUT = 4.0
+
+DNS_INFLIGHT_WAIT_TIMEOUT_SECONDS = 15.0
+
+# Fragment assembly: 5 minutes gives plenty of time for all fragments to arrive
+# even on a lossy path with retransmissions.
+DNS_FRAGMENT_ASSEMBLY_TIMEOUT = 300.0
+
+DNS_CACHE_MAX_RECORDS = 50000
+DNS_CACHE_TTL_SECONDS = 300.0
+
+
+# ------------------------------------------------------------------------------
+# 6) Upstream SOCKS / Forwarding
+# Standard direct SOCKS5 mode: clients choose their destinations.
+# ------------------------------------------------------------------------------
+
+SOCKS_CONNECT_TIMEOUT = 120.0
+
+USE_EXTERNAL_SOCKS5 = false
+SOCKS5_AUTH = false
+SOCKS5_USER = "admin"
+SOCKS5_PASS = "123456"
+
+FORWARD_IP   = ""
+FORWARD_PORT = 0
+
+
+# ------------------------------------------------------------------------------
+# 7) Security
+# Must match client DATA_ENCRYPTION_METHOD.
+# With the Iran→UK client config this is ChaCha20 (method 2).
+# ------------------------------------------------------------------------------
+
+DATA_ENCRYPTION_METHOD = 2   # Match client: ChaCha20.
+ENCRYPTION_KEY_FILE    = "encrypt_key.txt"
+
+
+# ------------------------------------------------------------------------------
+# 8) ARQ, Packing, and Setup-Control TTLs
+# ARQ_WINDOW_SIZE is increased to match the client's 1200-packet window.
+# RTO settings mirror the client: lower initial RTO since we know the path RTT.
+# NACK delay increased to reduce spurious resends on out-of-order paths.
+# ------------------------------------------------------------------------------
+
+MAX_PACKETS_PER_BATCH = 8
+
+# Duplicate packed-control responses to improve delivery on lossy links.
+# 2 = send each packed control block twice (one extra copy for resilience).
+PACKET_BLOCK_CONTROL_DUPLICATION = 2   # Was 1.
+
+STREAM_SETUP_ACK_TTL_SECONDS     = 400.0
+STREAM_RESULT_PACKET_TTL_SECONDS = 300.0
+STREAM_FAILURE_PACKET_TTL_SECONDS = 120.0
+
+ARQ_WINDOW_SIZE                 = 1200   # Matches client window.
+ARQ_INITIAL_RTO_SECONDS         = 0.5    # Was 1.0 — matches ~200 ms path RTT.
+ARQ_MAX_RTO_SECONDS             = 8.0    # Was 5.0 — headroom for congestion.
+ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.3    # Was 0.5 — faster control reaction.
+ARQ_CONTROL_MAX_RTO_SECONDS     = 3.0
+ARQ_MAX_CONTROL_RETRIES         = 400
+
+ARQ_INACTIVITY_TIMEOUT_SECONDS  = 1800.0
+ARQ_DATA_PACKET_TTL_SECONDS     = 2400.0
+ARQ_CONTROL_PACKET_TTL_SECONDS  = 1200.0
+ARQ_MAX_DATA_RETRIES            = 1200
+
+ARQ_DATA_NACK_MAX_GAP               = 16
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.3   # Was 0.3 — already good.
+ARQ_DATA_NACK_REPEAT_SECONDS        = 2.0   # Was 1.0 — less NACK spam.
+
+ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS    = 120.0
+ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
+
+
+# ------------------------------------------------------------------------------
+# 8.0) Session/Stream Limits
+# A single client typically opens 1–30 concurrent streams.
+# Keep limits generous since the UK VPS serves only your Iran VPS.
+# ------------------------------------------------------------------------------
+
+MAX_ALLOWED_CLIENT_ACTIVE_SESSION              = 255
+MAX_ALLOWED_CLIENT_ACTIVE_STREAMS_PER_SESSION  = 2000
+
+
+# ------------------------------------------------------------------------------
+# 8.1) Client Policy Sync Limits
+# These are sent to the client during SESSION_ACCEPT and cap what the client can
+# request.  They are set generously to allow the Iran client full flexibility.
+# ------------------------------------------------------------------------------
+
+MAX_ALLOWED_CLIENT_PACKET_DUPLICATION_COUNT       = 5
+MAX_ALLOWED_CLIENT_SETUP_PACKET_DUPLICATION_COUNT = 6
+
+MAX_ALLOWED_CLIENT_UPLOAD_MTU   = 150
+MAX_ALLOWED_CLIENT_DOWNLOAD_MTU = 4096
+
+MAX_ALLOWED_CLIENT_RX_TX_WORKERS = 255
+
+# Allow the client to use fast pings (100 ms) to keep NAT alive.
+MIN_ALLOWED_CLIENT_PING_AGGRESSIVE_INTERVAL_SECONDS = 0.05
+
+MAX_ALLOWED_CLIENT_PACKETS_PER_BATCH    = 20
+MAX_ALLOWED_CLIENT_ARQ_WINDOW_SIZE      = 8000
+MAX_ALLOWED_CLIENT_ARQ_DATA_NACK_MAX_GAP = 255
+MIN_ALLOWED_CLIENT_COMPRESSION_MIN_SIZE  = 100   # Was 120 — allow smaller.
+MIN_ALLOWED_CLIENT_ARQ_INITIAL_RTO_SECONDS = 0.05
+
+
+# ------------------------------------------------------------------------------
+# 9) Logging
+# ------------------------------------------------------------------------------
+
+LOG_LEVEL = "INFO"
+
+# ------------------------------------------------------------------------------
+CONFIG_VERSION = "12"

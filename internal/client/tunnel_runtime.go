@@ -26,12 +26,6 @@ const (
 	RuntimeUDPReadBufferSize         = 65535
 	runtimeUDPMaxMismatchedResponses = 64
 	runtimeUDPDrainGrace             = time.Millisecond
-
-	// pooledConnMaxAge is the maximum time a UDP connection can remain idle in
-	// the resolver pool before it is discarded and re-dialed. Stale connections can have their
-	// NAT mappings expired, causing silent packet loss (writes succeed but
-	// responses route to a dead port).
-	pooledConnMaxAge = 90 * time.Second
 )
 
 type pooledUDPConn struct {
@@ -145,11 +139,12 @@ func (c *Client) getUDPConn(resolverLabel string) (*net.UDPConn, error) {
 	}
 	c.resolverConnsMu.Unlock()
 
+	maxAge := c.cfg.ResolverUDPConnMaxAge()
 	now := time.Now()
 	for {
 		select {
 		case pc := <-pool:
-			if now.Sub(pc.pooledAt) > pooledConnMaxAge {
+			if now.Sub(pc.pooledAt) > maxAge {
 				_ = pc.conn.Close()
 				continue // discard stale, try next
 			}

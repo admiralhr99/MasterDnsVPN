@@ -1,0 +1,289 @@
+# ==============================================================================
+# MasterDnsVPN — Optimized Client Config for Iran → UK VPS
+# ==============================================================================
+# Tuned for: high latency (150–300 ms), moderate-to-heavy packet loss (5–25 %),
+#            restrictive DPI / UDP NAT (Iranian firewall conditions).
+#
+# HOW TO USE THIS FILE:
+#   ./client -config client_config_iran_uk.toml -resolvers client_resolvers.simple
+#
+# HOW TO TEST WHICH PROFILE WORKS BEST:
+#   Start with Profile A (below).  Measure throughput and latency with a tool
+#   like curl or wget over the SOCKS5 proxy:
+#
+#     curl -x socks5h://127.0.0.1:18000 https://speed.cloudflare.com/__down?bytes=10000000 -o /dev/null -w "%{speed_download}\n"
+#
+#   Then switch to Profile B and compare.  See the PROFILE COMPARISON section
+#   at the bottom of this file for what to change per profile.
+# ==============================================================================
+
+
+# ------------------------------------------------------------------------------
+# 1) Tunnel Identity & Security
+# ------------------------------------------------------------------------------
+
+DOMAINS = ["v.domain.com"]   # Must match your server DOMAIN exactly.
+
+# Encryption: XOR is fastest, ChaCha20 adds real security at low CPU cost.
+# For Iran→UK: use ChaCha20 (method 2) — the overhead is minimal and it makes
+# traffic look less like structured DNS to DPI.
+# 0=None  1=XOR  2=ChaCha20  3=AES-128-GCM  4=AES-192-GCM  5=AES-256-GCM
+DATA_ENCRYPTION_METHOD = 2
+
+ENCRYPTION_KEY = ""   # Fill in your shared key — MUST match server key file.
+
+
+# ------------------------------------------------------------------------------
+# 2) Local Proxy Listener
+# ------------------------------------------------------------------------------
+
+PROTOCOL_TYPE = "SOCKS5"
+LISTEN_IP     = "127.0.0.1"
+LISTEN_PORT   = 18000
+
+SOCKS5_AUTH = false
+SOCKS5_USER = "master_dns_vpn"
+SOCKS5_PASS = "master_dns_vpn"
+
+
+# ------------------------------------------------------------------------------
+# 3) Local DNS Service
+# (Enable if you also want DNS queries to route through the tunnel.)
+# ------------------------------------------------------------------------------
+
+LOCAL_DNS_ENABLED  = false
+LOCAL_DNS_IP       = "127.0.0.1"
+LOCAL_DNS_PORT     = 53
+
+LOCAL_DNS_CACHE_MAX_RECORDS      = 10000
+LOCAL_DNS_CACHE_TTL_SECONDS      = 14400.0
+LOCAL_DNS_PENDING_TIMEOUT_SECONDS = 300.0
+LOCAL_DNS_CACHE_PERSIST_TO_FILE  = true
+LOCAL_DNS_CACHE_FLUSH_INTERVAL_SECONDS = 60.0
+
+# Fragment assembly timeout for tunneled DNS responses.
+DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
+
+
+# ------------------------------------------------------------------------------
+# 4) Resolver Selection, Duplication, and Health
+# ------------------------------------------------------------------------------
+
+# Strategy 6 = LossThenLatency: first filters resolvers with lowest loss,
+# then picks the lowest-latency one among those.  Best for multiple UK resolvers.
+# Strategy 2 = Round Robin: good if you only have 1–2 resolvers (simpler).
+# Strategy 5 = HybridScore: balanced loss+latency weighting (alternative to 6).
+RESOLVER_BALANCING_STRATEGY = 6
+
+# Send each packet this many times.
+# 2 = good for ~10 % loss.
+# 3 = better for 15–25 % loss but uses 50 % more bandwidth.
+# Start with 2; bump to 3 if you see many retransmissions in DEBUG logs.
+PACKET_DUPLICATION_COUNT       = 2
+SETUP_PACKET_DUPLICATION_COUNT = 3   # Extra insurance for connection setup packets.
+
+# Failover to a different resolver after this many consecutive resends on the
+# same resolver without a successful response.
+# 1 = fail over very fast (good for unstable resolvers).
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 1
+STREAM_RESOLVER_FAILOVER_COOLDOWN         = 1.5   # Seconds between switches.
+
+RECHECK_INACTIVE_SERVERS_ENABLED = true
+AUTO_DISABLE_TIMEOUT_SERVERS     = true
+AUTO_DISABLE_TIMEOUT_WINDOW_SECONDS = 20.0   # Disable dead resolvers quickly.
+
+BASE_ENCODE_DATA = false
+
+
+# ------------------------------------------------------------------------------
+# 5) Compression
+# LZ4 is the sweet spot for this scenario: very fast encode/decode with a
+# compression ratio good enough to reduce DNS label count on repetitive payloads
+# (HTTP headers, HTML, JSON).  ZSTD gives a better ratio if your Iran VPS has
+# spare CPU; LZ4 is safer under load.
+# ------------------------------------------------------------------------------
+
+# 0=OFF  1=ZSTD  2=LZ4  3=ZLIB
+UPLOAD_COMPRESSION_TYPE   = 2   # LZ4 — fast, low CPU, decent ratio.
+DOWNLOAD_COMPRESSION_TYPE = 2   # LZ4.
+
+# Compress payloads >= this many bytes.  Keep at 100 to capture most HTTP data.
+COMPRESSION_MIN_SIZE = 100
+
+
+# ------------------------------------------------------------------------------
+# 6) MTU Discovery
+# Larger MTU_TEST_TIMEOUT and more retries because Iran→UK RTT means the
+# default 2 s timeout is too tight and leads to false "resolver rejected" calls.
+# ------------------------------------------------------------------------------
+
+MIN_UPLOAD_MTU   = 38
+MIN_DOWNLOAD_MTU = 100
+MAX_UPLOAD_MTU   = 120   # Conservative: some DPI setups drop large DNS labels.
+MAX_DOWNLOAD_MTU = 450
+
+MTU_TEST_RETRIES     = 3     # Was 2 — extra attempt on lossy paths.
+MTU_TEST_TIMEOUT     = 3.0   # Was 2.0 s — allows for 200–300 ms RTT + jitter.
+MTU_TEST_PARALLELISM = 16
+
+SAVE_MTU_SERVERS_TO_FILE = false
+MTU_SERVERS_FILE_NAME    = "masterdnsvpn_success_test_{time}.log"
+MTU_SERVERS_FILE_FORMAT  = "{IP} ({DOMAIN}) - UP: {UP_MTU} DOWN: {DOWN-MTU}"
+MTU_USING_SECTION_SEPARATOR_TEXT  = ""
+MTU_REMOVED_SERVER_LOG_FORMAT     = "Resolver {IP} ({DOMAIN}) removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT       = "Resolver {IP} ({DOMAIN}) added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+
+
+# ------------------------------------------------------------------------------
+# 7) Runtime Workers, Queues, and Timers
+# ------------------------------------------------------------------------------
+
+# Worker counts.  The defaults (auto-sized) are usually fine.
+# If your Iran VPS has >= 4 cores, explicitly setting these helps:
+RX_TX_WORKERS        = 4
+TUNNEL_PROCESS_WORKERS = 8   # More processors ease high-latency burst handling.
+
+TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
+
+# Dispatcher wake interval.  5 ms gives snappier response on high-latency paths
+# with minimal CPU cost (it only wakes to check the queue, not to spin).
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005   # Was 0.020 s.
+
+# Larger RX channel absorbs burst packets that arrive after a spike of
+# retransmissions clears.
+RX_CHANNEL_SIZE = 8192   # Was 4096.
+
+# UDP connection pool age.  THIS IS THE MOST IMPORTANT SETTING FOR IRAN.
+# Iranian NAT devices often expire UDP mappings in 30–60 s.  A stale pooled
+# connection looks fine for writes (kernel buffers them) but the server's reply
+# goes to a dead port — silent loss that looks like high latency to ARQ.
+# 25 s ensures we re-dial before the NAT mapping can expire.
+RESOLVER_UDP_CONN_MAX_AGE_SECONDS = 25.0
+
+SOCKS_UDP_ASSOCIATE_READ_TIMEOUT_SECONDS = 30.0
+CLIENT_TERMINAL_STREAM_RETENTION_SECONDS  = 45.0
+CLIENT_CANCELLED_SETUP_RETENTION_SECONDS  = 120.0
+
+# Session init retry.
+SESSION_INIT_RETRY_BASE_SECONDS    = 1.0
+SESSION_INIT_RETRY_STEP_SECONDS    = 1.0
+SESSION_INIT_RETRY_LINEAR_AFTER    = 5
+SESSION_INIT_RETRY_MAX_SECONDS     = 30.0   # Was 60 s — retry faster on reset.
+SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
+
+# Race 5 session init packets instead of 3.  On a lossy link this significantly
+# reduces the chance that all 3 init attempts are dropped.
+SESSION_INIT_RACING_COUNT = 5   # Was 3.
+
+# Ping / keepalive intervals.
+# CRITICAL: These pings are what keep the UDP NAT mapping alive on the Iranian
+# firewall.  PING_COLD_INTERVAL_SECONDS must be well below the firewall's UDP
+# NAT timeout (typically 30–60 s).  8 s gives a comfortable 3–7 × margin.
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.100   # During active data transfer.
+PING_LAZY_INTERVAL_SECONDS       = 0.500   # Was 0.750 — slightly more active.
+PING_COOLDOWN_INTERVAL_SECONDS   = 2.0
+PING_COLD_INTERVAL_SECONDS       = 8.0    # Was 15 s — MUST be < NAT timeout.
+
+# Thresholds for switching between ping modes (seconds of inactivity).
+PING_WARM_THRESHOLD_SECONDS = 5.0    # Was 8 s.
+PING_COOL_THRESHOLD_SECONDS = 15.0   # Was 20 s.
+PING_COLD_THRESHOLD_SECONDS = 25.0   # Was 30 s.
+
+
+# ------------------------------------------------------------------------------
+# 8) ARQ Reliability & Packing
+# High-latency tuning:
+#  • Larger window (1200) keeps more packets in-flight on a 200 ms+ path.
+#  • Lower initial RTO (0.5 s) matches expected RTT; avoids 1 s stall before
+#    first retransmission on a lossy link.
+#  • Slightly higher max RTO (8 s) tolerates transient congestion spikes.
+#  • NACK delay (0.3 s) avoids premature NACKs caused by out-of-order delivery
+#    that is common on high-latency paths — each NACK triggers an immediate
+#    server resend which wastes bandwidth if the original is still in-flight.
+# ------------------------------------------------------------------------------
+
+MAX_PACKETS_PER_BATCH = 8
+
+ARQ_WINDOW_SIZE                = 1200   # Was 600 — doubles in-flight capacity.
+ARQ_INITIAL_RTO_SECONDS        = 0.5    # Was 1.0 — matches ~200 ms RTT.
+ARQ_MAX_RTO_SECONDS            = 8.0    # Was 5.0 — headroom for congestion.
+ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.3   # Was 0.5 — faster control-plane reaction.
+ARQ_CONTROL_MAX_RTO_SECONDS    = 3.0
+ARQ_MAX_CONTROL_RETRIES        = 400
+
+ARQ_INACTIVITY_TIMEOUT_SECONDS    = 1800.0
+ARQ_DATA_PACKET_TTL_SECONDS       = 2400.0
+ARQ_CONTROL_PACKET_TTL_SECONDS    = 1200.0
+ARQ_MAX_DATA_RETRIES              = 1200
+
+# NACK settings for lossy paths.
+# 0.3 s initial delay reduces spurious resend requests on a path where packets
+# arrive out of order due to multi-path routing or DPI queuing.
+ARQ_DATA_NACK_MAX_GAP                 = 16
+ARQ_DATA_NACK_INITIAL_DELAY_SECONDS   = 0.3   # Was 0.1 s.
+ARQ_DATA_NACK_REPEAT_SECONDS          = 2.0   # Was 1.0 s — less NACK spam.
+
+ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS    = 120.0
+ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
+
+
+# ------------------------------------------------------------------------------
+# 9) Logging
+# Use DEBUG briefly to observe retransmission counts and RTT samples.
+# Switch back to INFO for normal operation (DEBUG is noisy and slightly slower).
+# ------------------------------------------------------------------------------
+
+LOG_LEVEL = "INFO"
+
+
+# ==============================================================================
+# PROFILE COMPARISON — How to benchmark which settings work better
+# ==============================================================================
+#
+# Measure baseline throughput:
+#   curl -x socks5h://127.0.0.1:18000 \
+#        https://speed.cloudflare.com/__down?bytes=20000000 \
+#        -o /dev/null --no-progress-meter -w "Speed: %{speed_download} B/s\n"
+#
+# Measure latency (time to first byte):
+#   curl -x socks5h://127.0.0.1:18000 -o /dev/null --no-progress-meter \
+#        -w "TTFB: %{time_starttransfer}s\n" https://1.1.1.1/
+#
+# ┌──────────────────────────────────────────────────────────────────────────┐
+# │ Profile A — Default (this file as-is)                                    │
+# │ Best for: moderate loss (5–15 %), single or few resolvers                │
+# │ PACKET_DUPLICATION_COUNT       = 2                                       │
+# │ UPLOAD_COMPRESSION_TYPE        = 2  (LZ4)                                │
+# │ ARQ_WINDOW_SIZE                = 1200                                    │
+# │ RESOLVER_BALANCING_STRATEGY    = 6  (LossThenLatency)                   │
+# ├──────────────────────────────────────────────────────────────────────────┤
+# │ Profile B — Lossy link (15–25 % loss)                                    │
+# │ Change these values:                                                     │
+# │ PACKET_DUPLICATION_COUNT       = 3                                       │
+# │ SETUP_PACKET_DUPLICATION_COUNT = 4                                       │
+# │ ARQ_INITIAL_RTO_SECONDS        = 0.4                                     │
+# │ ARQ_DATA_NACK_INITIAL_DELAY_SECONDS = 0.5                                │
+# ├──────────────────────────────────────────────────────────────────────────┤
+# │ Profile C — CPU-constrained Iran VPS                                     │
+# │ Change these values:                                                     │
+# │ UPLOAD_COMPRESSION_TYPE        = 0  (disable compression)               │
+# │ DOWNLOAD_COMPRESSION_TYPE      = 0                                       │
+# │ DATA_ENCRYPTION_METHOD         = 1  (XOR — near zero CPU)               │
+# │ TUNNEL_PROCESS_WORKERS         = 4  (reduce worker pressure)            │
+# ├──────────────────────────────────────────────────────────────────────────┤
+# │ Profile D — Maximum throughput (if loss < 5 %)                           │
+# │ Change these values:                                                     │
+# │ PACKET_DUPLICATION_COUNT       = 1                                       │
+# │ MAX_UPLOAD_MTU                 = 150                                     │
+# │ MAX_DOWNLOAD_MTU               = 500                                     │
+# │ ARQ_WINDOW_SIZE                = 1500                                    │
+# │ UPLOAD_COMPRESSION_TYPE        = 1  (ZSTD — best ratio, more CPU)       │
+# │ DOWNLOAD_COMPRESSION_TYPE      = 1                                       │
+# └──────────────────────────────────────────────────────────────────────────┘
+#
+# Quick diagnostic: run with LOG_LEVEL = "DEBUG" for 30 seconds and count:
+#   grep -c "RESEND"      → high = packet loss, increase PACKET_DUPLICATION_COUNT
+#   grep -c "NACK"        → very high = out-of-order, increase NACK delay
+#   grep -c "RX queue"    → any = increase RX_CHANNEL_SIZE
+#   grep -c "no valid"    → any = resolver pool exhausted, check resolvers file
+# ==============================================================================
