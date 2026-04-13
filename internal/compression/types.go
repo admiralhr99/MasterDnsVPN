@@ -77,6 +77,17 @@ var (
 			return decoder
 		},
 	}
+
+	// lz4ScratchPool recycles the scratch buffer used by compressLZ4 so
+	// every compression call does not allocate a fresh slice sized to
+	// lz4.CompressBlockBound(len(data)). The pool holds *[]byte to avoid
+	// interface boxing on Put.
+	lz4ScratchPool = sync.Pool{
+		New: func() any {
+			b := make([]byte, 0, 4096)
+			return &b
+		},
+	}
 )
 
 func NormalizeType(value uint8) uint8 {
@@ -270,20 +281,39 @@ func compressLZ4(data []byte) ([]byte, error) {
 	// Calculate max possible compressed size
 	maxSize := lz4.CompressBlockBound(len(data))
 	// We need 4 bytes for the original size header (Python's store_size=True)
-	buf := make([]byte, maxSize+4)
+	needed := maxSize + 4
+
+	scratchPtr := lz4ScratchPool.Get().(*[]byte)
+	scratch := *scratchPtr
+	if cap(scratch) < needed {
+		scratch = make([]byte, needed)
+	} else {
+		scratch = scratch[:needed]
+	}
 
 	// Store 4-byte little-endian size first (matches Python lz4.block behavior)
-	binary.LittleEndian.PutUint32(buf[0:4], uint32(len(data)))
+	binary.LittleEndian.PutUint32(scratch[0:4], uint32(len(data)))
 
-	n, err := lz4.CompressBlock(data, buf[4:], nil)
+	n, err := lz4.CompressBlock(data, scratch[4:], nil)
 	if err != nil {
+		*scratchPtr = scratch[:0]
+		lz4ScratchPool.Put(scratchPtr)
 		return nil, err
 	}
 	if n == 0 {
+		*scratchPtr = scratch[:0]
+		lz4ScratchPool.Put(scratchPtr)
 		return nil, io.ErrShortBuffer
 	}
 
-	return buf[:n+4], nil
+	// Clone the compressed slice so the caller owns a tightly-sized buffer
+	// and the scratch can safely return to the pool for reuse.
+	out := make([]byte, n+4)
+	copy(out, scratch[:n+4])
+
+	*scratchPtr = scratch[:0]
+	lz4ScratchPool.Put(scratchPtr)
+	return out, nil
 }
 
 func decompressLZ4(data []byte) ([]byte, error) {

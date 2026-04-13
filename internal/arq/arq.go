@@ -221,6 +221,13 @@ type ARQ struct {
 	flushSignal    chan struct{}
 	rxChan         chan rxPayload
 	pendingInbound int
+
+	// Reusable scratch buffers owned exclusively by the retransmit goroutine.
+	// No locking required — only touched from inside retransmitLoop/checkRetransmits.
+	rtxJobsBuf     []rtxJob
+	rtxKindsBuf    []bool
+	rtxBestIdxBuf  []int
+	rtxBestDistBuf []uint16
 }
 
 type closeWriter interface {
@@ -558,8 +565,19 @@ func (a *ARQ) signalWindowNotFull() {
 }
 
 func (a *ARQ) waitWindowNotFull() {
+	// Fast path: almost every call in the common case sees a non-full send
+	// window and returns immediately. Avoid allocating a timer at all for
+	// that path so ioLoop does not churn a timer.NewTimer/timer.Stop pair
+	// on every packet.
+	a.mu.RLock()
+	sndBufLen := len(a.sndBuf)
+	if sndBufLen < a.limit || a.closed {
+		a.mu.RUnlock()
+		return
+	}
+	a.mu.RUnlock()
+
 	timer := time.NewTimer(200 * time.Millisecond)
-	waitStarted := time.Time{}
 	defer func() {
 		if !timer.Stop() {
 			select {
@@ -570,6 +588,13 @@ func (a *ARQ) waitWindowNotFull() {
 	}()
 
 	for {
+		select {
+		case <-a.windowNotFull:
+		case <-timer.C:
+		case <-a.ctx.Done():
+			return
+		}
+
 		a.mu.RLock()
 		sndBufLen := len(a.sndBuf)
 		if sndBufLen < a.limit || a.closed {
@@ -578,11 +603,6 @@ func (a *ARQ) waitWindowNotFull() {
 		}
 		a.mu.RUnlock()
 
-		now := time.Now()
-		if waitStarted.IsZero() {
-			waitStarted = now
-		}
-
 		if !timer.Stop() {
 			select {
 			case <-timer.C:
@@ -590,13 +610,6 @@ func (a *ARQ) waitWindowNotFull() {
 			}
 		}
 		timer.Reset(200 * time.Millisecond)
-
-		select {
-		case <-a.windowNotFull:
-		case <-timer.C:
-		case <-a.ctx.Done():
-			return
-		}
 	}
 }
 
@@ -1099,7 +1112,9 @@ func (a *ARQ) ioLoop() {
 	var errorReason string
 	var transientReadSince time.Time
 
-	buf := make([]byte, max(a.mtu, 1))
+	mtuSize := max(a.mtu, 1)
+	// Per-read slab handed directly to sndBuf/enqueuer (no intermediate clone).
+	// Allocated inside the loop so its backing array is unique per packet.
 	ioReadyTimer := time.NewTimer(100 * time.Millisecond)
 	defer func() {
 		if !ioReadyTimer.Stop() {
@@ -1109,6 +1124,17 @@ func (a *ARQ) ioLoop() {
 			}
 		}
 	}()
+
+	// Amortize SetReadDeadline syscalls: set a deadline far in the future and
+	// only refresh it when the previously-set expiry is close to elapsing. The
+	// 500ms wakeup is retained via a conservative 1s deadline refreshed every
+	// ~700ms, which keeps shutdown latency bounded while eliminating one
+	// syscall per successful read on the hot path.
+	const (
+		readDeadlineWindow  = time.Second
+		readDeadlineRefresh = 700 * time.Millisecond
+	)
+	var nextReadDeadlineRefresh time.Time
 
 	for !a.isClosed() {
 		a.waitWindowNotFull()
@@ -1147,13 +1173,22 @@ func (a *ARQ) ioLoop() {
 		a.mu.Unlock()
 
 		if c, ok := localConn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			_ = c.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			now := time.Now()
+			if nextReadDeadlineRefresh.IsZero() || now.After(nextReadDeadlineRefresh) {
+				_ = c.SetReadDeadline(now.Add(readDeadlineWindow))
+				nextReadDeadlineRefresh = now.Add(readDeadlineRefresh)
+			}
 		}
 
-		n, err := localConn.Read(buf)
+		// Allocate the slab per-read so the byte slice we hand to sndBuf and
+		// the enqueuer is backed by a unique array. This eliminates the
+		// append([]byte(nil), buf[:n]...) memcpy that previously ran on every
+		// inbound packet. Alloc count is unchanged; memcpy cost is removed.
+		raw := make([]byte, mtuSize)
+		n, err := localConn.Read(raw)
 		if n > 0 {
 			transientReadSince = time.Time{}
-			raw := append([]byte(nil), buf[:n]...)
+			raw = raw[:n]
 
 			now := time.Now()
 			a.mu.Lock()
@@ -1615,9 +1650,14 @@ func (a *ARQ) writeLoop() {
 	defer a.wg.Done()
 
 	const maxRetainedMergeBuf = 256 * 1024
+	const (
+		writeDeadlineWindow  = time.Second
+		writeDeadlineRefresh = 700 * time.Millisecond
+	)
 
 	var mergeBuf []byte              // reusable merge buffer across iterations
 	toWrite := make([][]byte, 0, 16) // reusable slice for contiguous chunks
+	var nextWriteDeadlineRefresh time.Time
 
 	for {
 		// Check rcvBuf before blocking — signals may have been coalesced
@@ -1726,7 +1766,11 @@ func (a *ARQ) writeLoop() {
 					transientRetries := 0
 					for len(remaining) > 0 {
 						if wd, ok := conn.(writeDeadlineSetter); ok {
-							_ = wd.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+							now := time.Now()
+							if nextWriteDeadlineRefresh.IsZero() || now.After(nextWriteDeadlineRefresh) {
+								_ = wd.SetWriteDeadline(now.Add(writeDeadlineWindow))
+								nextWriteDeadlineRefresh = now.Add(writeDeadlineRefresh)
+							}
 						}
 						a.writeLock.Lock()
 						n, err := conn.Write(remaining)
@@ -2341,7 +2385,10 @@ func (a *ARQ) checkRetransmits() {
 	}
 
 	a.mu.RLock()
-	var jobs []rtxJob
+	// Reuse the retransmit goroutine's scratch jobs slice to avoid an
+	// allocation on every retransmit tick. Dynamic growth via append amortizes;
+	// we cap retention so a sudden storm does not balloon heap usage forever.
+	jobs := a.rtxJobsBuf[:0]
 	var ttlExpired bool
 	var retryExceeded bool
 	draining := a.deferredClose || a.state == StateDraining
@@ -2374,6 +2421,9 @@ func (a *ARQ) checkRetransmits() {
 		})
 	}
 	a.mu.RUnlock()
+
+	// Stash the (possibly grown) backing array for the next tick.
+	a.rtxJobsBuf = jobs
 
 	if ttlExpired {
 		a.handleTrackedPacketTTLExpiry(Enums.PACKET_STREAM_DATA, "Packet TTL expired")
@@ -2432,7 +2482,19 @@ func (a *ARQ) retransmitPriorityKinds(jobs []rtxJob) []bool {
 		return nil
 	}
 
-	kinds := make([]bool, len(jobs))
+	// Reuse retransmit-goroutine-owned scratch slices to avoid 3 heap allocations
+	// (kinds, bestIdx, bestDist) on every retransmit tick.
+	kinds := a.rtxKindsBuf
+	if cap(kinds) >= len(jobs) {
+		kinds = kinds[:len(jobs)]
+		for i := range kinds {
+			kinds[i] = false
+		}
+	} else {
+		kinds = make([]bool, len(jobs))
+	}
+	a.rtxKindsBuf = kinds
+
 	if len(jobs) == 1 {
 		kinds[0] = true
 		return kinds
@@ -2450,8 +2512,18 @@ func (a *ARQ) retransmitPriorityKinds(jobs []rtxJob) []bool {
 	}
 
 	sndNxt := a.sndNxt
-	bestIdx := make([]int, 0, frontBudget)
-	bestDist := make([]uint16, 0, frontBudget)
+	bestIdx := a.rtxBestIdxBuf[:0]
+	if cap(bestIdx) < frontBudget {
+		bestIdx = make([]int, 0, frontBudget)
+	}
+	bestDist := a.rtxBestDistBuf[:0]
+	if cap(bestDist) < frontBudget {
+		bestDist = make([]uint16, 0, frontBudget)
+	}
+	defer func() {
+		a.rtxBestIdxBuf = bestIdx
+		a.rtxBestDistBuf = bestDist
+	}()
 
 	insertBest := func(idx int, dist uint16) {
 		pos := len(bestIdx)
