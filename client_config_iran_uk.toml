@@ -154,27 +154,34 @@ MTU_ADDED_SERVER_LOG_FORMAT       = "Resolver {IP} ({DOMAIN}) added back at {TIM
 # ------------------------------------------------------------------------------
 # 7) Runtime Workers, Queues, and Timers
 #
-# Workers: 4 RX/TX + 8 processors is the stable sweet spot.
-#   - Fewer workers (e.g., 4+4) if the Iran VPS has 1–2 cores.
-#   - More workers (e.g., 8+14) only if Iran VPS has 8+ cores.
-#   - Warning: too many workers on a weak VPS causes CPU overload which is
-#     WORSE than fewer workers — high CPU = scheduling jitter = higher latency.
+# Workers: keep RX_TX + TUNNEL_PROCESS at or below your core count.
+#   - 4-core VPS (this file): 4 + 4 — proven by config 4 community testing.
+#   - 2-core VPS: use client_config_iran_uk_lite.toml (2 + 4).
+#   - 8-core VPS: Profile D below (8 + 14).
 #
-# PING: The aggressive interval (0.4 s) is a deliberate reduction from the
-# default 100 ms. During active data transfer, data packets themselves keep
-# the path alive — excessive pings waste bandwidth and can cause DPI
-# detection. The cold interval (8 s) ensures NAT mappings stay alive even
-# when idle — Iranian NAT typically expires UDP mappings in 30–60 s.
+#   WARNING: more workers than cores forces Go to context-switch constantly.
+#   High CPU = scheduling jitter = higher latency and lower throughput.
+#   Config 4 (community-proven on 4-core VPSs) uses 4 + 4.
+#
+# DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030:
+#   The dispatcher is event-driven when busy — the idle poll only fires when
+#   there is no work queued.  0.030 (30 ms) was proven in config 4 on 4-core
+#   VPSs.  Only lower this to 0.005 on 8-core machines with spare headroom.
+#
+# PING: aggressive 0.4 s avoids flooding during data transfer.
+# Cold 8 s keeps NAT alive with 3.75–7.5× safety margin over Iranian NAT
+# (which typically expires UDP mappings in 30–60 s).
 # ------------------------------------------------------------------------------
-RX_TX_WORKERS          = 4    # Safe default. Use 8 only on 8-core VPS.
-TUNNEL_PROCESS_WORKERS = 8    # 2× RX/TX is a good balance.
+RX_TX_WORKERS          = 4    # One per physical core on a 4-core VPS.
+TUNNEL_PROCESS_WORKERS = 4    # Equal to RX_TX on 4-core — proven by config 4.
 
 TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
 
-# 5ms poll = low latency. Use 0.030 if CPU usage is too high.
-DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005
+# 30ms idle poll — proven value for 4-core VPSs (config 4).
+# Does NOT add latency when busy; only delays idle wake-ups by 30 ms.
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030
 
-# RX buffer: 4096-8192 is sufficient. Larger = more memory, not more speed.
+# RX buffer: 4096 is sufficient. Larger = more memory, not more speed.
 RX_CHANNEL_SIZE = 4096
 
 # UDP connection pool age.  25 s is safe for Iranian firewalls that expire
@@ -200,7 +207,7 @@ SESSION_INIT_RACING_COUNT = 3   # 3 racing init packets is enough with MTU 50.
 # 0.4 s aggressive avoids flooding the path during data transfer.
 # 8 s cold keeps NAT alive with a 4× safety margin over typical 30 s timeout.
 PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400   # During active traffic.
-PING_LAZY_INTERVAL_SECONDS       = 0.800   # Light activity.
+PING_LAZY_INTERVAL_SECONDS       = 0.400   # Light activity — same as aggressive (config 4).
 PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
 PING_COLD_INTERVAL_SECONDS       = 8.0    # Idle — MUST be < NAT timeout.
 
@@ -272,6 +279,7 @@ LOG_LEVEL = "INFO"
 # │ Profile A — This file (balanced: moderate loss, 4-core Iran VPS)         │
 # │ PACKET_DUPLICATION_COUNT = 2 | ARQ_WINDOW_SIZE = 5000                   │
 # │ UPLOAD_COMPRESSION_TYPE = 1 (ZSTD) | RX_TX_WORKERS = 4                  │
+# │ TUNNEL_PROCESS_WORKERS = 4 | DISPATCHER_IDLE_POLL = 0.030               │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile B — Heavy loss / unstable path (15–25 % loss)                    │
 # │ PACKET_DUPLICATION_COUNT       = 3                                       │
@@ -280,8 +288,8 @@ LOG_LEVEL = "INFO"
 # │ SESSION_INIT_RACING_COUNT      = 5                                       │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile C — CPU-constrained (1–2 core Iran VPS or mobile)                │
+# │ → Use client_config_iran_uk_lite.toml instead                            │
 # │ UPLOAD_COMPRESSION_TYPE   = 0  (no compression — saves CPU)             │
-# │ DOWNLOAD_COMPRESSION_TYPE = 0                                            │
 # │ RX_TX_WORKERS             = 2                                            │
 # │ TUNNEL_PROCESS_WORKERS    = 4                                            │
 # │ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030                           │
@@ -289,6 +297,7 @@ LOG_LEVEL = "INFO"
 # │ Profile D — High-throughput (8-core VPS, low loss < 5 %)                 │
 # │ RX_TX_WORKERS             = 8                                            │
 # │ TUNNEL_PROCESS_WORKERS    = 14                                           │
+# │ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005                           │
 # │ MAX_PACKETS_PER_BATCH     = 50                                           │
 # │ ARQ_WINDOW_SIZE           = 6000                                         │
 # └──────────────────────────────────────────────────────────────────────────┘
