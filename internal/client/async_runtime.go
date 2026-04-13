@@ -677,10 +677,17 @@ func (c *Client) buildPlannedOutboundFrames(
 	preparedDomainByName map[string]preparedTunnelDomain,
 	frames []encodedOutboundDatagram,
 ) ([]encodedOutboundDatagram, error) {
-	encoded, err := c.buildEncodedAutoWithCompressionTrace(task.opts)
+	encoded, releaseEncoded, err := c.buildEncodedAutoWithCompressionTrace(task.opts)
 	if err != nil {
 		return nil, err
 	}
+	// Release the encode buffer back to the pool once all DNS packets have been
+	// built from it (they copy the encoded bytes into DNS wire format).
+	defer func() {
+		if releaseEncoded != nil {
+			releaseEncoded()
+		}
+	}()
 
 	var (
 		firstDomain    string

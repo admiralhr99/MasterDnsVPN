@@ -56,6 +56,32 @@ func putCryptoBuffer(bufPtr *[]byte) {
 	}
 }
 
+// encodeOutputPool pools encode output buffers to eliminate one per-packet
+// heap allocation in the hot send path. Each asyncPlanEncodeWorker goroutine
+// borrows a buffer, builds the DNS packet from it, then returns it.
+var encodeOutputPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 256)
+		return &b
+	},
+}
+
+func getEncodeOutputBuffer(size int) *[]byte {
+	bufPtr := encodeOutputPool.Get().(*[]byte)
+	if cap(*bufPtr) < size {
+		b := make([]byte, size)
+		return &b
+	}
+	*bufPtr = (*bufPtr)[:size]
+	return bufPtr
+}
+
+func putEncodeOutputBuffer(bufPtr *[]byte) {
+	if bufPtr != nil {
+		encodeOutputPool.Put(bufPtr)
+	}
+}
+
 type Codec struct {
 	method  int
 	key     []byte
@@ -157,6 +183,45 @@ func (c *Codec) EncryptAndEncodeBytes(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	return baseCodec.EncodeToBytes(encrypted), nil
+}
+
+// EncryptAndEncodeBytesBorrowed is like EncryptAndEncodeBytes but returns a buffer
+// borrowed from an internal pool. The caller MUST invoke the returned release
+// function once the encoded slice is no longer needed (typically after it has been
+// copied into the outbound DNS packet). Skipping release is safe — it just forfeits
+// the pooling benefit for that call.
+func (c *Codec) EncryptAndEncodeBytesBorrowed(data []byte) (encoded []byte, release func(), err error) {
+	if c == nil {
+		return nil, nil, ErrInvalidCodecMethod
+	}
+
+	var toEncode []byte
+	var cryptoBuf *[]byte
+
+	if c.method == 0 {
+		toEncode = data
+	} else {
+		cryptoBuf = getCryptoBuffer(len(data) + 64)
+		toEncode, err = c.encrypt((*cryptoBuf)[:0], data)
+		if err != nil {
+			putCryptoBuffer(cryptoBuf)
+			return nil, nil, err
+		}
+	}
+
+	encodedSize := baseCodec.EncodedLen(len(toEncode))
+	bufPtr := getEncodeOutputBuffer(encodedSize)
+	n := baseCodec.EncodeTo(*bufPtr, toEncode)
+	*bufPtr = (*bufPtr)[:n]
+
+	if cryptoBuf != nil {
+		putCryptoBuffer(cryptoBuf)
+	}
+
+	encoded = *bufPtr
+	capturedBuf := bufPtr
+	release = func() { putEncodeOutputBuffer(capturedBuf) }
+	return encoded, release, nil
 }
 
 func (c *Codec) DecodeAndDecrypt(data []byte) ([]byte, error) {

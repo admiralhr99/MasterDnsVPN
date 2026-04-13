@@ -234,6 +234,15 @@ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.020
 # Channel sizes for async RX pipelines are auto-raised internally when needed.
 RX_CHANNEL_SIZE = 4096
 
+# Maximum age of a pooled UDP connection before it is discarded and re-dialed.
+# Pooled connections whose NAT mapping has expired cause silent packet loss:
+# writes succeed in the kernel but the server's replies are routed to a dead
+# port.  On networks with aggressive UDP NAT timeouts (common on restrictive
+# firewalls) this should be set well below the observed NAT expiry.
+# A safe value for most restricted networks is 25s.
+# Clamped to [5s, 300s].
+RESOLVER_UDP_CONN_MAX_AGE_SECONDS = 25.0
+
 # UDP connection pool size per resolver key.
 # Local UDP ASSOCIATE read timeout.
 # Clamped to [1s, 3600s].

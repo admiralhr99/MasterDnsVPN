@@ -87,6 +87,13 @@ type Balancer struct {
 	pendingSize      atomic.Int32
 	pendingEvictRR   atomic.Uint32
 
+	// Cached signal flags — set true on the first ReportSend/ReportSuccess that
+	// reaches the threshold; reset only in SetConnections.  Eliminates the O(N)
+	// scan of all active resolver stats that hasLossSignalLocked /
+	// hasLatencySignalLocked used to perform on every SelectTargets call.
+	cachedHasLossSignal    atomic.Bool
+	cachedHasLatencySignal atomic.Bool
+
 	mu           sync.RWMutex
 	log          *logger.Logger
 	connections  []Connection
@@ -204,6 +211,8 @@ func (b *Balancer) SetConnections(connections []*Connection) {
 	}
 	b.pendingOverflow.Store(false)
 	b.pendingSize.Store(0)
+	b.cachedHasLossSignal.Store(false)
+	b.cachedHasLatencySignal.Store(false)
 
 	if b.streamRoutes == nil {
 		b.streamRoutes = make(map[uint16]*balancerStreamRouteState)
@@ -337,7 +346,10 @@ func (b *Balancer) ApplyMTUProbeResult(key string, uploadBytes int, uploadChars 
 
 func (b *Balancer) ReportSend(serverKey string) {
 	if stats := b.statsForKey(serverKey); stats != nil {
-		stats.sent.Add(1)
+		newSent := stats.sent.Add(1)
+		if newSent >= 5 {
+			b.cachedHasLossSignal.Store(true)
+		}
 		stats.applyHalfLife()
 	}
 }
@@ -351,7 +363,10 @@ func (b *Balancer) ReportSuccess(serverKey string, rtt time.Duration) {
 	stats.acked.Add(1)
 	if rtt > 0 {
 		stats.rttMicrosSum.Add(uint64(rtt / time.Microsecond))
-		stats.rttCount.Add(1)
+		newCount := stats.rttCount.Add(1)
+		if newCount >= 5 {
+			b.cachedHasLatencySignal.Store(true)
+		}
 	}
 	stats.applyHalfLife()
 }
@@ -815,8 +830,10 @@ func (b *Balancer) GetBestConnectionExcluding(excludeKey string) (Connection, bo
 
 	switch b.strategy {
 	case BalancingRandom:
-		ordered := b.rotatedActiveIndicesLocked(1)
-		for _, idx := range ordered {
+		n := len(b.activeIDs)
+		start := roundRobinStartIndex(b.rrCounter.Add(1)-1, n)
+		for i := 0; i < n; i++ {
+			idx := b.activeIDs[(start+i)%n]
 			if b.connections[idx].Key == excludeKey {
 				continue
 			}
@@ -1609,8 +1626,10 @@ func (b *Balancer) selectTargetByStrategyLocked() (Connection, bool) {
 func (b *Balancer) getBestConnectionExcludingLocked(excludeKey string) (Connection, bool) {
 	switch b.strategy {
 	case BalancingRandom:
-		ordered := b.rotatedActiveIndicesLocked(1)
-		for _, idx := range ordered {
+		n := len(b.activeIDs)
+		start := roundRobinStartIndex(b.rrCounter.Add(1)-1, n)
+		for i := 0; i < n; i++ {
+			idx := b.activeIDs[(start+i)%n]
 			if b.connections[idx].Key == excludeKey {
 				continue
 			}
@@ -1683,9 +1702,12 @@ func (b *Balancer) selectLowestScoreLocked(count int, scorer func(int) uint64) [
 		score uint64
 	}
 
-	ordered := b.rotatedActiveIndicesLocked(count)
+	// Iterate activeIDs directly from a rotated start — avoids allocating a
+	// full copy of activeIDs (was ~80 KB at 38 k resolvers).
+	start := roundRobinStartIndex(b.rrCounter.Add(uint64(count))-uint64(count), n)
 	scored := make([]scoredIdx, n)
-	for i, idx := range ordered {
+	for i := 0; i < n; i++ {
+		idx := b.activeIDs[(start+i)%n]
 		scored[i] = scoredIdx{idx: idx, score: scorer(idx)}
 	}
 
@@ -1718,10 +1740,16 @@ func (b *Balancer) connectionsByIndicesLocked(indices []int) []Connection {
 }
 
 func (b *Balancer) bestScoredConnectionLocked(scorer func(int) uint64) (Connection, bool) {
-	ordered := b.rotatedActiveIndicesLocked(1)
+	n := len(b.activeIDs)
+	if n == 0 {
+		return Connection{}, false
+	}
+	// Rotate start position for fairness without allocating a copy of activeIDs.
+	start := roundRobinStartIndex(b.rrCounter.Add(1)-1, n)
 	bestIndex := -1
 	var bestScore uint64
-	for _, idx := range ordered {
+	for i := 0; i < n; i++ {
+		idx := b.activeIDs[(start+i)%n]
 		score := scorer(idx)
 		if bestIndex == -1 || score < bestScore {
 			bestIndex = idx
@@ -1735,10 +1763,16 @@ func (b *Balancer) bestScoredConnectionLocked(scorer func(int) uint64) (Connecti
 }
 
 func (b *Balancer) bestScoredConnectionExcludingLocked(scorer func(int) uint64, excludeKey string) (Connection, bool) {
-	ordered := b.rotatedActiveIndicesLocked(1)
+	n := len(b.activeIDs)
+	if n == 0 {
+		return Connection{}, false
+	}
+	// Rotate start position for fairness without allocating a copy of activeIDs.
+	start := roundRobinStartIndex(b.rrCounter.Add(1)-1, n)
 	bestIndex := -1
 	var bestScore uint64
-	for _, idx := range ordered {
+	for i := 0; i < n; i++ {
+		idx := b.activeIDs[(start+i)%n]
 		if b.connections[idx].Key == excludeKey {
 			continue
 		}
@@ -1763,32 +1797,19 @@ func (b *Balancer) roundRobinBestConnectionLocked() (Connection, bool) {
 }
 
 func (b *Balancer) roundRobinBestConnectionExcludingLocked(excludeKey string) (Connection, bool) {
-	if len(b.activeIDs) == 0 {
+	n := len(b.activeIDs)
+	if n == 0 {
 		return Connection{}, false
 	}
-	for _, idx := range b.rotatedActiveIndicesLocked(1) {
+	start := roundRobinStartIndex(b.rrCounter.Add(1)-1, n)
+	for i := 0; i < n; i++ {
+		idx := b.activeIDs[(start+i)%n]
 		if b.connections[idx].Key == excludeKey {
 			continue
 		}
 		return b.connections[idx], true
 	}
 	return Connection{}, false
-}
-
-func (b *Balancer) rotatedActiveIndicesLocked(step int) []int {
-	if len(b.activeIDs) == 0 {
-		return nil
-	}
-	if step < 1 {
-		step = 1
-	}
-
-	start := roundRobinStartIndex(b.rrCounter.Add(uint64(step))-uint64(step), len(b.activeIDs))
-	ordered := make([]int, len(b.activeIDs))
-	for i := range b.activeIDs {
-		ordered[i] = b.activeIDs[(start+i)%len(b.activeIDs)]
-	}
-	return ordered
 }
 
 func roundRobinStartIndex(counter uint64, n int) int {
@@ -1799,31 +1820,11 @@ func roundRobinStartIndex(counter uint64, n int) int {
 }
 
 func (b *Balancer) hasLossSignalLocked() bool {
-	for _, idx := range b.activeIDs {
-		stats := b.stats[idx]
-		if stats == nil {
-			continue
-		}
-		sent, _, _, _, _ := stats.snapshot()
-		if sent >= 5 {
-			return true
-		}
-	}
-	return false
+	return b.cachedHasLossSignal.Load()
 }
 
 func (b *Balancer) hasLatencySignalLocked() bool {
-	for _, idx := range b.activeIDs {
-		stats := b.stats[idx]
-		if stats == nil {
-			continue
-		}
-		_, _, _, _, count := stats.snapshot()
-		if count >= 5 {
-			return true
-		}
-	}
-	return false
+	return b.cachedHasLatencySignal.Load()
 }
 
 func (b *Balancer) hasHybridSignalLocked() bool {
