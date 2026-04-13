@@ -4,15 +4,18 @@
 # Use this file on a weak Iran VPS (2 CPU cores, 2 GB RAM).
 # Differences from client_config_iran_uk.toml (the 4-core profile):
 #
-#   RX_TX_WORKERS          = 2   (was 4) — fits on 2 physical cores
-#   TUNNEL_PROCESS_WORKERS = 4   (was 8) — 2× RX/TX, not 4×
-#   DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030  (was 0.005)
-#       0.005 (5 ms) burns a full core just polling.  30 ms is plenty for
-#       interactive traffic (YouTube 360p, Telegram) on a weak VPS.
-#   RX_CHANNEL_SIZE = 2048   (was 4096) — saves ~300 KB RAM
-#   UPLOAD_COMPRESSION_TYPE   = 0   (was 1 ZSTD) — saves CPU on uplink
+#   RX_TX_WORKERS          = 2   (vs 4) — fits on 2 physical cores
+#   TUNNEL_PROCESS_WORKERS = 4   (vs 4, same) — min floor enforced by server policy
+#   DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030  (vs 0.030, same)
+#       30 ms is the proven value for both profiles.
+#   RX_CHANNEL_SIZE = 2048   (vs 4096) — saves ~300 KB RAM
+#   UPLOAD_COMPRESSION_TYPE   = 2   (LZ4, vs 1 ZSTD) — fast compression, low CPU
+#       Disabling upload compression entirely (type=0) is tempting but harmful:
+#       with MTU=50 and no compression, each DNS query carries only 50 raw bytes.
+#       LZ4 is memory-bandwidth-bound (not CPU-bound) and effectively multiplies
+#       the useful bytes per query, keeping Telegram and web browsing responsive.
 #   DOWNLOAD_COMPRESSION_TYPE = 1   (ZSTD) — server does the work, keep it
-#   PING_COLD_INTERVAL_SECONDS = 10.0  (was 8.0) — slightly lazier idle ping
+#   PING_COLD_INTERVAL_SECONDS = 10.0  (vs 8.0) — slightly lazier idle ping
 #
 # All other values (MTU, ARQ, balancing) are identical to the 4-core profile.
 # The server config (server_config_iran_uk.toml) works unchanged for both.
@@ -82,12 +85,17 @@ BASE_ENCODE_DATA = false
 
 # ------------------------------------------------------------------------------
 # 5) Compression
-# Upload compression disabled to save CPU on the weak Iran VPS.
-# Download compression kept — the UK server does the ZSTD work, not us.
-# If CPU is still overloaded, set DOWNLOAD_COMPRESSION_TYPE = 0 as well.
+# LZ4 upload compression is the right choice for a weak Iran VPS:
+#   - LZ4 is memory-bandwidth-bound, not CPU-bound (near-zero CPU cost).
+#   - With MTU=50 and no compression, each DNS query carries only 50 raw bytes.
+#     LZ4 multiplies effective throughput, keeping Telegram/web responsive.
+#   - DO NOT use 0 (OFF): raw-upload mode causes Telegram to time out on the
+#     initial message sync because not enough data arrives per RTT.
+# If CPU is still overloaded (check top during data transfer), try:
+#   UPLOAD_COMPRESSION_TYPE = 0  (OFF — last resort, hurts throughput)
 # ------------------------------------------------------------------------------
 # 0=OFF  1=ZSTD  2=LZ4  3=ZLIB
-UPLOAD_COMPRESSION_TYPE   = 0   # OFF — saves CPU on 2-core VPS.
+UPLOAD_COMPRESSION_TYPE   = 2   # LZ4 — very low CPU, good throughput gain.
 DOWNLOAD_COMPRESSION_TYPE = 1   # ZSTD — server compresses, we just decompress.
 
 COMPRESSION_MIN_SIZE = 150
@@ -110,8 +118,9 @@ SAVE_MTU_SERVERS_TO_FILE = false
 MTU_SERVERS_FILE_NAME    = "masterdnsvpn_success_test_{time}.log"
 MTU_SERVERS_FILE_FORMAT  = "{IP} ({DOMAIN}) - UP: {UP_MTU} DOWN: {DOWN-MTU}"
 MTU_USING_SECTION_SEPARATOR_TEXT  = ""
-MTU_REMOVED_SERVER_LOG_FORMAT     = "Resolver {IP} ({DOMAIN}) removed at {TIME} due to {CAUSE}"
-MTU_ADDED_SERVER_LOG_FORMAT       = "Resolver {IP} ({DOMAIN}) added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+MTU_REMOVED_SERVER_LOG_FORMAT         = "Resolver {IP} ({DOMAIN}) removed at {TIME} due to {CAUSE}"
+MTU_ADDED_SERVER_LOG_FORMAT           = "Resolver {IP} ({DOMAIN}) added back at {TIME} (UP {UP_MTU}, DOWN {DOWN_MTU})"
+MTU_REACTIVE_ADDED_SERVER_LOG_FORMAT  = "Resolver {IP} ({DOMAIN}) added back at {TIME} after reactive recheck (UP {UP_MTU}, DOWN {DOWN_MTU})"
 
 
 # ------------------------------------------------------------------------------
@@ -151,7 +160,7 @@ SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
 SESSION_INIT_RACING_COUNT = 3
 
 PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400
-PING_LAZY_INTERVAL_SECONDS       = 0.800
+PING_LAZY_INTERVAL_SECONDS       = 0.400   # Same as aggressive — proven by config 4.
 PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
 PING_COLD_INTERVAL_SECONDS       = 10.0   # Slightly lazier than 4-core (8 s).
 
