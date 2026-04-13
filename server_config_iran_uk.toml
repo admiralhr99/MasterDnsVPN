@@ -140,7 +140,7 @@ STREAM_SETUP_ACK_TTL_SECONDS      = 200.0
 STREAM_RESULT_PACKET_TTL_SECONDS  = 150.0
 STREAM_FAILURE_PACKET_TTL_SECONDS = 60.0
 
-ARQ_WINDOW_SIZE                 = 5000   # Matches client.
+ARQ_WINDOW_SIZE                 = 8000   # Larger window for high-latency lossy paths.
 ARQ_INITIAL_RTO_SECONDS         = 0.2    # Matches client — fast retransmit.
 ARQ_MAX_RTO_SECONDS             = 1.5    # Matches client.
 ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.15   # Control packets get even faster RTO.

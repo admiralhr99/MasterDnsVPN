@@ -70,10 +70,10 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-PACKET_DUPLICATION_COUNT       = 2
-SETUP_PACKET_DUPLICATION_COUNT = 2
+PACKET_DUPLICATION_COUNT       = 3
+SETUP_PACKET_DUPLICATION_COUNT = 3
 
-STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 5
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
 STREAM_RESOLVER_FAILOVER_COOLDOWN         = 15.0
 
 RECHECK_INACTIVE_SERVERS_ENABLED    = true
@@ -105,7 +105,7 @@ COMPRESSION_MIN_SIZE = 150
 # 6) MTU Discovery (same as 4-core profile — MTU is path-dependent, not CPU)
 # ------------------------------------------------------------------------------
 MIN_UPLOAD_MTU   = 40
-MAX_UPLOAD_MTU   = 50    # Avoids Iran DPI on DNS query labels.
+MAX_UPLOAD_MTU   = 150   # Binary search finds your ISP's true max (safe to set high).
 
 MIN_DOWNLOAD_MTU = 800
 MAX_DOWNLOAD_MTU = 900   # Large responses are fine from UK servers.
@@ -157,7 +157,7 @@ SESSION_INIT_RETRY_LINEAR_AFTER    = 3
 SESSION_INIT_RETRY_MAX_SECONDS     = 30.0
 SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
 
-SESSION_INIT_RACING_COUNT = 3
+SESSION_INIT_RACING_COUNT = 5
 
 PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400
 PING_LAZY_INTERVAL_SECONDS       = 0.400   # Same as aggressive — proven by config 4.

@@ -82,18 +82,27 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # dropping packets. This is the proven best choice for Iran paths because DPI
 # blocks specific IPs unpredictably — LeastLoss adapts in real time.
 #
-# FAILOVER: A high threshold (5) + long cooldown (15 s) prevents flapping.
-# Switching resolvers too eagerly causes more instability than it fixes.
+# DUPLICATION: The single most important setting for "no messages" problems.
+#   At 20% path loss, count=2 means 4% of packets need ARQ retransmit.
+#   At 30% path loss, count=2 means 9% — 1 in 11 packets stalls.
+#   Stalled packets fill the ARQ window (5000 slots); when full, nothing
+#   new can be sent and Telegram shows "updating" indefinitely.
+#   count=3: P(all 3 lost at 30% loss) = 2.7% — window barely fills.
+#   Cost: 50% more bandwidth vs count=2. Worth it on a lossy Iran path.
+#   If your path is clean (< 5% loss), you can try count=2 to save bandwidth.
+#
+# FAILOVER: threshold=3 switches resolvers after 3 consecutive resends
+# (was 5) for faster escape from bad resolvers on lossy paths.
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-# 2 = good for ~10 % loss. Use 3 for 15–25 % loss (50 % more bandwidth).
-PACKET_DUPLICATION_COUNT       = 2
-SETUP_PACKET_DUPLICATION_COUNT = 2
+# 3 = good for 15–30 % loss (the typical Iran range).
+# Use 4 for > 30 % loss or if you still see "no messages" with count=3.
+PACKET_DUPLICATION_COUNT       = 3
+SETUP_PACKET_DUPLICATION_COUNT = 3
 
-# Stay on a resolver until it fails 5 resends in a row before switching.
-# Prevents flapping on transiently congested paths.
-STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 5
+# Switch resolvers after 3 consecutive resends (was 5) — faster failover.
+STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
 STREAM_RESOLVER_FAILOVER_COOLDOWN         = 15.0   # Seconds between switches.
 
 RECHECK_INACTIVE_SERVERS_ENABLED    = true
@@ -134,7 +143,11 @@ COMPRESSION_MIN_SIZE = 150   # Don't compress payloads smaller than 150 bytes.
 # searching, which speeds up the initial resolver scan significantly.
 # ------------------------------------------------------------------------------
 MIN_UPLOAD_MTU   = 40
-MAX_UPLOAD_MTU   = 50    # Keep small — 50 bytes avoids Iran DPI on queries.
+# MAX_UPLOAD_MTU = 150: the binary search finds the true maximum your ISP allows.
+# If Iranian DPI blocks long labels the search settles near 50 automatically.
+# If it allows up to 150, you get 3× upload throughput for free.
+# This is safe to set high — lower it to 50 only if resolvers all fail the test.
+MAX_UPLOAD_MTU   = 150
 
 MIN_DOWNLOAD_MTU = 800
 MAX_DOWNLOAD_MTU = 900   # Large responses are fine from UK servers.
@@ -202,7 +215,7 @@ SESSION_INIT_RETRY_LINEAR_AFTER    = 3
 SESSION_INIT_RETRY_MAX_SECONDS     = 30.0
 SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
 
-SESSION_INIT_RACING_COUNT = 3   # 3 racing init packets is enough with MTU 50.
+SESSION_INIT_RACING_COUNT = 5   # 5 racing inits — helps on lossy paths.
 
 # Ping intervals — tuned to minimize bandwidth while keeping NAT alive.
 # 0.4 s aggressive avoids flooding the path during data transfer.
@@ -277,16 +290,17 @@ LOG_LEVEL = "INFO"
 # ==============================================================================
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
-# │ Profile A — This file (balanced: moderate loss, 4-core Iran VPS)         │
-# │ PACKET_DUPLICATION_COUNT = 2 | ARQ_WINDOW_SIZE = 5000                   │
+# │ Profile A — This file (Iran VPS, 4-core, lossy path)                     │
+# │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 5000                   │
+# │ MAX_UPLOAD_MTU = 150 (binary search adapts to your ISP's actual limit)  │
 # │ UPLOAD_COMPRESSION_TYPE = 1 (ZSTD) | RX_TX_WORKERS = 4                  │
 # │ TUNNEL_PROCESS_WORKERS = 4 | DISPATCHER_IDLE_POLL = 0.030               │
 # ├──────────────────────────────────────────────────────────────────────────┤
-# │ Profile B — Heavy loss / unstable path (15–25 % loss)                    │
-# │ PACKET_DUPLICATION_COUNT       = 3                                       │
-# │ SETUP_PACKET_DUPLICATION_COUNT = 3                                       │
+# │ Profile B — Very heavy loss / highly unstable path (> 30 % loss)         │
+# │ PACKET_DUPLICATION_COUNT       = 4                                       │
+# │ SETUP_PACKET_DUPLICATION_COUNT = 4                                       │
 # │ ARQ_INITIAL_RTO_SECONDS        = 0.15                                    │
-# │ SESSION_INIT_RACING_COUNT      = 5                                       │
+# │ SESSION_INIT_RACING_COUNT      = 5  (already set in this file)           │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile C — CPU-constrained (1–2 core Iran VPS or mobile)                │
 # │ → Use client_config_iran_uk_lite.toml instead                            │
