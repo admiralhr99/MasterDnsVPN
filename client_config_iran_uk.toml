@@ -150,7 +150,9 @@ MIN_UPLOAD_MTU   = 40
 MAX_UPLOAD_MTU   = 150
 
 MIN_DOWNLOAD_MTU = 800
-MAX_DOWNLOAD_MTU = 1500   # Large responses are fine from UK servers (up to EDNS cap).
+MAX_DOWNLOAD_MTU = 900   # Proven ceiling on Iran->UK path (config 4.1). Larger
+                         # DNS responses get dropped/fragmented by Iranian DPI
+                         # under real load, even when idle probes succeed.
 
 # ------------------------------------------------------------------------------
 # MTU_SYNC_MIN_PERCENT — *** CRITICAL for mixed resolver pools ***
