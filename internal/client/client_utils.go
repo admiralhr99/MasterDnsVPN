@@ -554,16 +554,24 @@ func (c *Client) PrintBanner() {
 
 	strategyName := "Round-Robin"
 	switch c.cfg.ResolverBalancingStrategy {
-	case 0:
+	case BalancingRoundRobinDefault:
 		strategyName = "Round-Robin Default"
-	case 1:
+	case BalancingRandom:
 		strategyName = "Random"
-	case 2:
+	case BalancingRoundRobin:
 		strategyName = "Round-Robin"
-	case 3:
+	case BalancingLeastLoss:
 		strategyName = "Least Loss"
-	case 4:
+	case BalancingLowestLatency:
 		strategyName = "Lowest Latency"
+	case BalancingHybridScore:
+		strategyName = "Hybrid Score"
+	case BalancingLossThenLatency:
+		strategyName = "Loss Then Latency"
+	case BalancingLeastLossTopRandom:
+		strategyName = "Least Loss Top Random"
+	case BalancingLeastLossTopRoundRobin:
+		strategyName = "Least Loss Top Round-Robin"
 	}
 	c.log.Infof("⚖  <cyan>Resolver Balancing, Strategy:</cyan> <yellow>%s (%d)</yellow>", strategyName, c.cfg.ResolverBalancingStrategy)
 
