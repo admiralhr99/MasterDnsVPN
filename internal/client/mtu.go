@@ -135,6 +135,7 @@ func (c *Client) RunInitialMTUTests(ctx context.Context) error {
 	}
 
 	activeConns := c.balancer.ActiveConnections()
+	activeConns = c.pruneMTUOutliers(activeConns)
 	validConns, minUpload, minDownload, minUploadChars := summarizeValidMTUConnections(activeConns)
 	if len(validConns) == 0 {
 		if c.log != nil {
@@ -1230,6 +1231,131 @@ func averageMTUProbeRTT(values ...time.Duration) time.Duration {
 		return 0
 	}
 	return sum / time.Duration(count)
+}
+
+// pruneMTUOutliers removes resolvers whose tested MTU is far below the pool's
+// maximum. The session-wide synced MTU is the MIN across all valid resolvers,
+// so a single cripple (e.g. upload=40 in a pool where 40+ resolvers support
+// upload=138) drags the entire session down. By deactivating resolvers below
+// a configurable percentage of the pool's best MTU, we let the session run at
+// the high-MTU resolvers' capacity.
+//
+// Pruning is disabled when MTUSyncMinPercent >= 1.0 (or when it would leave
+// fewer than 2 resolvers, to avoid collapsing a small pool).
+func (c *Client) pruneMTUOutliers(active []Connection) []Connection {
+	if c == nil || c.balancer == nil || len(active) == 0 {
+		return active
+	}
+
+	percent := c.cfg.MTUSyncMinPercent
+	if percent <= 0 || percent >= 1.0 {
+		return active
+	}
+
+	maxUpload := 0
+	maxDownload := 0
+	validCount := 0
+	for i := range active {
+		if !active[i].IsValid {
+			continue
+		}
+		validCount++
+		if active[i].UploadMTUBytes > maxUpload {
+			maxUpload = active[i].UploadMTUBytes
+		}
+		if active[i].DownloadMTUBytes > maxDownload {
+			maxDownload = active[i].DownloadMTUBytes
+		}
+	}
+	if validCount < 2 || maxUpload <= 0 || maxDownload <= 0 {
+		return active
+	}
+
+	upThreshold := int(float64(maxUpload) * percent)
+	downThreshold := int(float64(maxDownload) * percent)
+	if upThreshold < minUploadMTUFloor {
+		upThreshold = minUploadMTUFloor
+	}
+	if downThreshold < minDownloadMTUFloor {
+		downThreshold = minDownloadMTUFloor
+	}
+
+	// Count how many resolvers would survive the prune so we don't collapse
+	// a small pool. Require at least 2 survivors to proceed.
+	survivors := 0
+	for i := range active {
+		if !active[i].IsValid {
+			continue
+		}
+		if active[i].UploadMTUBytes >= upThreshold && active[i].DownloadMTUBytes >= downThreshold {
+			survivors++
+		}
+	}
+	if survivors < 2 {
+		return active
+	}
+
+	filtered := make([]Connection, 0, survivors)
+	prunedUp := 0
+	prunedDown := 0
+	for i := range active {
+		conn := active[i]
+		if !conn.IsValid {
+			filtered = append(filtered, conn)
+			continue
+		}
+		belowUp := conn.UploadMTUBytes < upThreshold
+		belowDown := conn.DownloadMTUBytes < downThreshold
+		if !belowUp && !belowDown {
+			filtered = append(filtered, conn)
+			continue
+		}
+
+		cause := ""
+		switch {
+		case belowUp && belowDown:
+			cause = "MTU outlier (upload + download below pool)"
+			prunedUp++
+			prunedDown++
+		case belowUp:
+			cause = "MTU outlier (upload below pool)"
+			prunedUp++
+		case belowDown:
+			cause = "MTU outlier (download below pool)"
+			prunedDown++
+		}
+
+		if c.balancer.SetConnectionValidityWithLog(conn.Key, false, false) {
+			if c.log != nil && c.log.Enabled(logger.LevelInfo) {
+				c.log.Infof(
+					"<yellow>🪓 Pruned MTU outlier: <cyan>%s</cyan> via <cyan>%s</cyan> | upload=<cyan>%d</cyan>/<cyan>%d</cyan> | download=<cyan>%d</cyan>/<cyan>%d</cyan> | threshold=<cyan>%d%%</cyan></yellow>",
+					conn.Domain,
+					conn.ResolverLabel,
+					conn.UploadMTUBytes,
+					maxUpload,
+					conn.DownloadMTUBytes,
+					maxDownload,
+					int(percent*100),
+				)
+			}
+			c.appendMTURemovedServerLine(&conn, cause)
+		}
+	}
+
+	if c.log != nil && c.log.Enabled(logger.LevelInfo) && (prunedUp > 0 || prunedDown > 0) {
+		c.log.Infof(
+			"<blue>[MTU]</blue> Outlier prune: pool max upload=<cyan>%d</cyan>, max download=<cyan>%d</cyan>, thresholds=<cyan>%d</cyan>/<cyan>%d</cyan> (<cyan>%d%%</cyan>), pruned upload=<yellow>%d</yellow>, pruned download=<yellow>%d</yellow>",
+			maxUpload,
+			maxDownload,
+			upThreshold,
+			downThreshold,
+			int(percent*100),
+			prunedUp,
+			prunedDown,
+		)
+	}
+
+	return filtered
 }
 
 func summarizeValidMTUConnections(connections []Connection) (validConns []Connection, minUpload int, minDownload int, minUploadChars int) {

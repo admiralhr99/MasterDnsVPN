@@ -62,6 +62,7 @@ type ClientConfig struct {
 	MinDownloadMTU                        int               `toml:"MIN_DOWNLOAD_MTU"`
 	MaxUploadMTU                          int               `toml:"MAX_UPLOAD_MTU"`
 	MaxDownloadMTU                        int               `toml:"MAX_DOWNLOAD_MTU"`
+	MTUSyncMinPercent                     float64           `toml:"MTU_SYNC_MIN_PERCENT"`
 	MTUTestRetries                        int               `toml:"MTU_TEST_RETRIES"`
 	MTUTestTimeout                        float64           `toml:"MTU_TEST_TIMEOUT"`
 	MTUTestParallelism                    int               `toml:"MTU_TEST_PARALLELISM"`
@@ -164,6 +165,7 @@ func defaultClientConfig() ClientConfig {
 		MinDownloadMTU:                        100,
 		MaxUploadMTU:                          150,
 		MaxDownloadMTU:                        500,
+		MTUSyncMinPercent:                     0.90,
 		MTUTestRetries:                        2,
 		MTUTestTimeout:                        2.0,
 		MTUTestParallelism:                    16,
@@ -424,6 +426,11 @@ func finalizeClientConfig(cfg ClientConfig) (ClientConfig, error) {
 	if cfg.MaxDownloadMTU > 0 && cfg.MinDownloadMTU > cfg.MaxDownloadMTU {
 		return cfg, fmt.Errorf("MIN_DOWNLOAD_MTU cannot be greater than MAX_DOWNLOAD_MTU")
 	}
+
+	if cfg.MTUSyncMinPercent <= 0 {
+		cfg.MTUSyncMinPercent = 0.90
+	}
+	cfg.MTUSyncMinPercent = clampFloat(cfg.MTUSyncMinPercent, 0.10, 1.0)
 
 	cfg.MTUTestRetries = defaultIntBelow(cfg.MTUTestRetries, 1, 1)
 	cfg.MTUTestTimeout = defaultFloatAtMostZero(cfg.MTUTestTimeout, 2.0)

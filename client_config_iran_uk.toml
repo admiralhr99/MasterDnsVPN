@@ -150,7 +150,27 @@ MIN_UPLOAD_MTU   = 40
 MAX_UPLOAD_MTU   = 150
 
 MIN_DOWNLOAD_MTU = 800
-MAX_DOWNLOAD_MTU = 900   # Large responses are fine from UK servers.
+MAX_DOWNLOAD_MTU = 1500   # Large responses are fine from UK servers (up to EDNS cap).
+
+# ------------------------------------------------------------------------------
+# MTU_SYNC_MIN_PERCENT — *** CRITICAL for mixed resolver pools ***
+#
+# The client computes a single session-wide MTU as the MINIMUM across all
+# valid resolvers (because every resolver must be able to carry every packet).
+# A handful of cripple resolvers (e.g. 3 stuck at upload=40 while 40 others
+# support upload=138) therefore drags the entire session down.
+#
+# This setting automatically prunes resolvers whose upload OR download MTU is
+# below this fraction of the pool's best tested value, BEFORE computing the
+# synced MTU. The pruned resolvers are deactivated (they can still come back
+# via the reactive health check). A small-pool guard ensures we keep at least
+# 2 survivors.
+#
+# 0.90 = keep resolvers within 10% of the best (recommended for Iran).
+# 0.80 = keep resolvers within 20% (looser — more resolvers, lower synced MTU).
+# 1.0  = disables pruning entirely (legacy MIN-across-pool behavior).
+# ------------------------------------------------------------------------------
+MTU_SYNC_MIN_PERCENT = 0.90
 
 MTU_TEST_RETRIES     = 2
 MTU_TEST_TIMEOUT     = 2.0

@@ -108,7 +108,12 @@ MIN_UPLOAD_MTU   = 40
 MAX_UPLOAD_MTU   = 150   # Binary search finds your ISP's true max (safe to set high).
 
 MIN_DOWNLOAD_MTU = 800
-MAX_DOWNLOAD_MTU = 900   # Large responses are fine from UK servers.
+MAX_DOWNLOAD_MTU = 1500  # Large responses are fine from UK servers (up to EDNS cap).
+
+# Prune resolvers whose MTU is below 90% of the pool's best. Prevents a
+# handful of cripple resolvers from dragging the session-wide synced MTU down
+# to the minimum — see the annotated iran_uk config for full explanation.
+MTU_SYNC_MIN_PERCENT = 0.90
 
 MTU_TEST_RETRIES     = 2
 MTU_TEST_TIMEOUT     = 2.0
