@@ -70,10 +70,10 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-# 2 = cuts query rate by 33%. With MAX_PACKETS_PER_BATCH=1, dup=3 generated
-# 120K queries/sec, overwhelming server/DPI. dup=2 keeps download chain growing.
-PACKET_DUPLICATION_COUNT       = 2
-SETUP_PACKET_DUPLICATION_COUNT = 3   # Keep 3 for setup — SYN packets are rare.
+# 3 = required for lossy path. dup=2 feedback chain decays at >25% loss.
+# Upload burst controlled by ARQ_WINDOW_SIZE=2000.
+PACKET_DUPLICATION_COUNT       = 3
+SETUP_PACKET_DUPLICATION_COUNT = 3
 
 STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
 STREAM_RESOLVER_FAILOVER_COOLDOWN         = 15.0
@@ -181,7 +181,7 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 # ------------------------------------------------------------------------------
 MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
 
-ARQ_WINDOW_SIZE                 = 5000
+ARQ_WINDOW_SIZE                 = 2000   # Limits upload burst (was 5000).
 ARQ_INITIAL_RTO_SECONDS         = 0.2
 ARQ_MAX_RTO_SECONDS             = 1.5
 ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.4

@@ -96,13 +96,12 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-# 2 = proven value (friend's config 4.1). With MAX_PACKETS_PER_BATCH=1, each
-# duplicate generates its own DNS query→response. dup=3 produced 120K queries/sec
-# at full upload, overwhelming the 1-core server and triggering DPI throttle.
-# dup=2 cuts query rate by 33% while maintaining download feedback chain growth
-# (dup=2 > batch=1, so each download packet still generates >1 query).
-PACKET_DUPLICATION_COUNT       = 2
-SETUP_PACKET_DUPLICATION_COUNT = 3   # Keep 3 for setup — SYN packets are rare.
+# 3 = required for lossy Iran path. At 25-30% loss, dup=2's feedback chain
+# decays (growth ratio <1) because too many ACKs+responses are lost.
+# dup=3 keeps the chain self-sustaining (ratio ~1.4 at 30% loss).
+# Upload burst is controlled by ARQ_WINDOW_SIZE=2000 instead.
+PACKET_DUPLICATION_COUNT       = 3
+SETUP_PACKET_DUPLICATION_COUNT = 3
 
 # Switch resolvers after 3 consecutive resends (was 5) — faster failover.
 STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
@@ -302,7 +301,7 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 # data naturally generates queries.
 MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
 
-ARQ_WINDOW_SIZE                 = 5000   # Large window for high-latency path.
+ARQ_WINDOW_SIZE                 = 2000   # Limits upload burst to ~25K queries/sec (was 5000).
 ARQ_INITIAL_RTO_SECONDS         = 0.2    # Match ~200 ms real-world RTT.
 ARQ_MAX_RTO_SECONDS             = 1.5    # Don't backoff too far on loss.
 ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.4
@@ -335,7 +334,7 @@ LOG_LEVEL = "INFO"
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ Profile A — This file (Iran VPS, 4-core, lossy path)                     │
-# │ PACKET_DUPLICATION_COUNT = 2 | ARQ_WINDOW_SIZE = 5000                   │
+# │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 2000                   │
 # │ MAX_UPLOAD_MTU = 150 (binary search adapts to your ISP's actual limit)  │
 # │ UPLOAD_COMPRESSION_TYPE = 1 (ZSTD) | RX_TX_WORKERS = 4                  │
 # │ TUNNEL_PROCESS_WORKERS = 4 | DISPATCHER_IDLE_POLL = 0.030               │
