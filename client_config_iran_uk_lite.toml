@@ -164,7 +164,7 @@ SESSION_INIT_BUSY_RETRY_INTERVAL_SECONDS = 30.0
 
 SESSION_INIT_RACING_COUNT = 5
 
-PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.100   # Max ping rate — seeds download chain.
 PING_LAZY_INTERVAL_SECONDS       = 0.400   # Same as aggressive — proven by config 4.
 PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
 PING_COLD_INTERVAL_SECONDS       = 10.0   # Slightly lazier than 4-core (8 s).
@@ -177,7 +177,7 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 # ------------------------------------------------------------------------------
 # 8) ARQ Reliability & Packing  (identical to 4-core profile)
 # ------------------------------------------------------------------------------
-MAX_PACKETS_PER_BATCH = 45
+MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
 
 ARQ_WINDOW_SIZE                 = 5000
 ARQ_INITIAL_RTO_SECONDS         = 0.2

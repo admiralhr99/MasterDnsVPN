@@ -242,7 +242,8 @@ SESSION_INIT_RACING_COUNT = 5   # 5 racing inits — helps on lossy paths.
 # Ping intervals — tuned to minimize bandwidth while keeping NAT alive.
 # 0.4 s aggressive avoids flooding the path during data transfer.
 # 8 s cold keeps NAT alive with a 4× safety margin over typical 30 s timeout.
-PING_AGGRESSIVE_INTERVAL_SECONDS = 0.400   # During active traffic.
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.100   # Maximum ping rate (min allowed).
+# Pings seed the download chain. More pings = faster download ramp-up.
 PING_LAZY_INTERVAL_SECONDS       = 0.400   # Light activity — same as aggressive (config 4).
 PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
 PING_COLD_INTERVAL_SECONDS       = 8.0    # Idle — MUST be < NAT timeout.
@@ -278,7 +279,24 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 #   prevents premature NACKs for packets still in-flight. Repeat every 0.5 s
 #   keeps the server informed without excessive retransmit storms.
 # ------------------------------------------------------------------------------
-MAX_PACKETS_PER_BATCH = 45   # Pack many ACKs/control blocks per DNS response.
+# MAX_PACKETS_PER_BATCH — CRITICAL FOR DOWNLOAD THROUGHPUT
+#
+# In DNS tunneling, the server can only send download data INSIDE responses to
+# client queries. Download throughput = client query rate × download MTU.
+#
+# During download, the client sends ACKs for received data. The dispatcher
+# PACKS multiple ACKs into a single query:
+#   maxPackedBlocks = (uploadMTU × 80%) / 7
+#   e.g. uploadMTU=125 → 14 ACKs per query → 1 download response per 14 ACKs
+#
+# This creates a decaying feedback chain: 14 downloads → 1 query → 1 download.
+# Setting MAX_PACKETS_PER_BATCH = 1 disables packing: each ACK generates its
+# own query, creating a self-sustaining chain that saturates resolver capacity.
+#
+# Tradeoff: more queries for ACKs = more resolver load, but during download
+# the resolvers would otherwise sit idle. Upload is unaffected because upload
+# data naturally generates queries.
+MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
 
 ARQ_WINDOW_SIZE                 = 5000   # Large window for high-latency path.
 ARQ_INITIAL_RTO_SECONDS         = 0.2    # Match ~200 ms real-world RTT.
