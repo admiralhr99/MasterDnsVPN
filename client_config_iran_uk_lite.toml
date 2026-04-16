@@ -70,8 +70,10 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-PACKET_DUPLICATION_COUNT       = 3
-SETUP_PACKET_DUPLICATION_COUNT = 3
+# 2 = cuts query rate by 33%. With MAX_PACKETS_PER_BATCH=1, dup=3 generated
+# 120K queries/sec, overwhelming server/DPI. dup=2 keeps download chain growing.
+PACKET_DUPLICATION_COUNT       = 2
+SETUP_PACKET_DUPLICATION_COUNT = 3   # Keep 3 for setup — SYN packets are rare.
 
 STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
 STREAM_RESOLVER_FAILOVER_COOLDOWN         = 15.0

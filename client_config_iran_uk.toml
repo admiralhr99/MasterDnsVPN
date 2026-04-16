@@ -96,10 +96,13 @@ DNS_RESPONSE_FRAGMENT_TIMEOUT_SECONDS = 60.0
 # ------------------------------------------------------------------------------
 RESOLVER_BALANCING_STRATEGY = 3   # LeastLoss — proven best for Iran.
 
-# 3 = good for 15–30 % loss (the typical Iran range).
-# Use 4 for > 30 % loss or if you still see "no messages" with count=3.
-PACKET_DUPLICATION_COUNT       = 3
-SETUP_PACKET_DUPLICATION_COUNT = 3
+# 2 = proven value (friend's config 4.1). With MAX_PACKETS_PER_BATCH=1, each
+# duplicate generates its own DNS query→response. dup=3 produced 120K queries/sec
+# at full upload, overwhelming the 1-core server and triggering DPI throttle.
+# dup=2 cuts query rate by 33% while maintaining download feedback chain growth
+# (dup=2 > batch=1, so each download packet still generates >1 query).
+PACKET_DUPLICATION_COUNT       = 2
+SETUP_PACKET_DUPLICATION_COUNT = 3   # Keep 3 for setup — SYN packets are rare.
 
 # Switch resolvers after 3 consecutive resends (was 5) — faster failover.
 STREAM_RESOLVER_FAILOVER_RESEND_THRESHOLD = 3
@@ -270,9 +273,10 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 #   Caps backoff — on a lossy tunnel you don't want to wait 5–8 s before
 #   resending. 1.5 s is aggressive but workable given duplication = 2.
 #
-# MAX_PACKETS_PER_BATCH = 45:
-#   More control blocks packed together = fewer DNS round-trips for ACKs.
-#   This is the biggest throughput lever after MTU.
+# MAX_PACKETS_PER_BATCH = 1:
+#   Disables ACK packing so each download ACK generates its own DNS query,
+#   creating a self-sustaining download feedback chain. This is the biggest
+#   throughput lever — see the detailed block below.
 #
 # NACK settings (gap=64, delay=0.5, repeat=0.5):
 #   A gap of 64 triggers NACKs only for meaningful holes. The 0.5 s delay
@@ -331,7 +335,7 @@ LOG_LEVEL = "INFO"
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ Profile A — This file (Iran VPS, 4-core, lossy path)                     │
-# │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 5000                   │
+# │ PACKET_DUPLICATION_COUNT = 2 | ARQ_WINDOW_SIZE = 5000                   │
 # │ MAX_UPLOAD_MTU = 150 (binary search adapts to your ISP's actual limit)  │
 # │ UPLOAD_COMPRESSION_TYPE = 1 (ZSTD) | RX_TX_WORKERS = 4                  │
 # │ TUNNEL_PROCESS_WORKERS = 4 | DISPATCHER_IDLE_POLL = 0.030               │
@@ -353,7 +357,7 @@ LOG_LEVEL = "INFO"
 # │ RX_TX_WORKERS             = 8                                            │
 # │ TUNNEL_PROCESS_WORKERS    = 14                                           │
 # │ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005                           │
-# │ MAX_PACKETS_PER_BATCH     = 50                                           │
+# │ MAX_PACKETS_PER_BATCH     = 1  (still needed for download)               │
 # │ ARQ_WINDOW_SIZE           = 6000                                         │
 # └──────────────────────────────────────────────────────────────────────────┘
 # ==============================================================================
