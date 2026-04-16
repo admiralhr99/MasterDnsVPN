@@ -124,7 +124,7 @@ BASE_ENCODE_DATA = false
 UPLOAD_COMPRESSION_TYPE   = 1   # ZSTD: best throughput for typical web traffic.
 DOWNLOAD_COMPRESSION_TYPE = 1
 
-COMPRESSION_MIN_SIZE = 150   # Don't compress payloads smaller than 150 bytes.
+COMPRESSION_MIN_SIZE = 100   # Compress payloads ≥100 bytes.
 
 
 # ------------------------------------------------------------------------------
@@ -178,7 +178,7 @@ MTU_SYNC_MIN_PERCENT = 0.90
 
 MTU_TEST_RETRIES     = 2
 MTU_TEST_TIMEOUT     = 2.0
-MTU_TEST_PARALLELISM = 150   # High parallelism speeds up large resolver lists.
+MTU_TEST_PARALLELISM = 200   # Scan resolvers fast — 2 powerful CPUs can handle it.
 
 SAVE_MTU_SERVERS_TO_FILE = false
 MTU_SERVERS_FILE_NAME    = "masterdnsvpn_success_test_{time}.log"
@@ -192,32 +192,16 @@ MTU_REACTIVE_ADDED_SERVER_LOG_FORMAT  = "Resolver {IP} ({DOMAIN}) added back at 
 # ------------------------------------------------------------------------------
 # 7) Runtime Workers, Queues, and Timers
 #
-# Workers: keep RX_TX + TUNNEL_PROCESS at or below your core count.
-#   - 4-core VPS (this file): 4 + 4 — proven by config 4 community testing.
-#   - 2-core VPS: use client_config_iran_uk_lite.toml (2 + 4).
-#   - 8-core VPS: Profile D below (8 + 14).
-#
-#   WARNING: more workers than cores forces Go to context-switch constantly.
-#   High CPU = scheduling jitter = higher latency and lower throughput.
-#   Config 4 (community-proven on 4-core VPSs) uses 4 + 4.
-#
-# DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030:
-#   The dispatcher is event-driven when busy — the idle poll only fires when
-#   there is no work queued.  0.030 (30 ms) was proven in config 4 on 4-core
-#   VPSs.  Only lower this to 0.005 on 8-core machines with spare headroom.
-#
-# PING: aggressive 0.4 s avoids flooding during data transfer.
-# Cold 8 s keeps NAT alive with 3.75–7.5× safety margin over Iranian NAT
-# (which typically expires UDP mappings in 30–60 s).
+# Tuned for 2 powerful CPUs + 4GB RAM. Go goroutines are lightweight —
+# more workers means less queuing delay for packet processing.
+# Users with 1-core servers commonly run 8 workers without issues.
 # ------------------------------------------------------------------------------
-RX_TX_WORKERS          = 4    # One per physical core on a 4-core VPS.
-TUNNEL_PROCESS_WORKERS = 4    # Equal to RX_TX on 4-core — proven by config 4.
+RX_TX_WORKERS          = 8    # Max I/O concurrency for 24 resolvers.
+TUNNEL_PROCESS_WORKERS = 16   # 2× RX_TX — decrypt/decompress/ARQ in parallel.
 
 TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
 
-# 30ms idle poll — proven value for 4-core VPSs (config 4).
-# Does NOT add latency when busy; only delays idle wake-ups by 30 ms.
-DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005   # 5 ms — minimum latency on powerful CPU.
 
 # RX buffer: 4096 is sufficient. Larger = more memory, not more speed.
 RX_CHANNEL_SIZE = 4096
@@ -244,11 +228,10 @@ SESSION_INIT_RACING_COUNT = 5   # 5 racing inits — helps on lossy paths.
 # Ping intervals — tuned to minimize bandwidth while keeping NAT alive.
 # 0.4 s aggressive avoids flooding the path during data transfer.
 # 8 s cold keeps NAT alive with a 4× safety margin over typical 30 s timeout.
-PING_AGGRESSIVE_INTERVAL_SECONDS = 0.100   # Maximum ping rate (min allowed).
-# Pings seed the download chain. More pings = faster download ramp-up.
-PING_LAZY_INTERVAL_SECONDS       = 0.400   # Light activity — same as aggressive (config 4).
-PING_COOLDOWN_INTERVAL_SECONDS   = 1.5
-PING_COLD_INTERVAL_SECONDS       = 8.0    # Idle — MUST be < NAT timeout.
+PING_AGGRESSIVE_INTERVAL_SECONDS = 0.100   # Max ping rate — seeds download chain.
+PING_LAZY_INTERVAL_SECONDS       = 0.100   # Same as aggressive — no slowdown during brief lulls.
+PING_COOLDOWN_INTERVAL_SECONDS   = 1.0
+PING_COLD_INTERVAL_SECONDS       = 5.0    # Fast recovery from idle. Still 6× under NAT timeout.
 
 PING_WARM_THRESHOLD_SECONDS = 3.0
 PING_COOL_THRESHOLD_SECONDS = 8.0
@@ -270,7 +253,7 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 #
 # ARQ_MAX_RTO = 1.5 s:
 #   Caps backoff — on a lossy tunnel you don't want to wait 5–8 s before
-#   resending. 1.5 s is aggressive but workable given duplication = 2.
+#   resending. 1.5 s is aggressive but workable given duplication = 3.
 #
 # MAX_PACKETS_PER_BATCH = 1:
 #   Disables ACK packing so each download ACK generates its own DNS query,
@@ -333,11 +316,10 @@ LOG_LEVEL = "INFO"
 # ==============================================================================
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
-# │ Profile A — This file (Iran VPS, 4-core, lossy path)                     │
+# │ Profile A — This file (2 powerful CPUs, 4GB RAM, lossy Iran path)         │
 # │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 2000                   │
-# │ MAX_UPLOAD_MTU = 150 (binary search adapts to your ISP's actual limit)  │
-# │ UPLOAD_COMPRESSION_TYPE = 1 (ZSTD) | RX_TX_WORKERS = 4                  │
-# │ TUNNEL_PROCESS_WORKERS = 4 | DISPATCHER_IDLE_POLL = 0.030               │
+# │ MAX_PACKETS_PER_BATCH = 1 | PING_AGGRESSIVE/LAZY = 0.100               │
+# │ RX_TX_WORKERS = 8 | TUNNEL_PROCESS = 16 | POLL = 0.005                  │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile B — Very heavy loss / highly unstable path (> 30 % loss)         │
 # │ PACKET_DUPLICATION_COUNT       = 4                                       │
