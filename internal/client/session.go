@@ -267,6 +267,11 @@ func (c *Client) syncSessionPolicyDerivedState() {
 
 	c.plannerQueue = make(chan plannerTask, max(24, c.cfg.RX_TX_Workers*24))
 	c.encodedTXChannel = make(chan writerTask, max(24, c.cfg.RX_TX_Workers*24))
+	if c.cfg.SendRateLimitPerSecond > 0 {
+		c.sendLimiter = newSendRateLimiter(c.cfg.SendRateLimitPerSecond)
+	} else {
+		c.sendLimiter = nil
+	}
 	c.rxChannel = make(chan asyncReadPacket, c.cfg.EffectiveRXChannelSize())
 	c.orphanQueue = mlq.New[VpnProto.Packet](c.cfg.EffectiveOrphanQueueInitialCapacity())
 	c.dnsResponses = fragmentStore.New[dnsFragmentKey](c.cfg.EffectiveDNSResponseFragmentStoreCap())

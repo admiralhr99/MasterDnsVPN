@@ -196,12 +196,12 @@ MTU_REACTIVE_ADDED_SERVER_LOG_FORMAT  = "Resolver {IP} ({DOMAIN}) added back at 
 # more workers means less queuing delay for packet processing.
 # Users with 1-core servers commonly run 8 workers without issues.
 # ------------------------------------------------------------------------------
-RX_TX_WORKERS          = 4    # Critical: 8 workers doubled burst rate → DPI throttle.
-TUNNEL_PROCESS_WORKERS = 8    # Slightly more than RX_TX for processing headroom.
+RX_TX_WORKERS          = 16   # High worker count + batch=45 is the proven combo for Iran.
+TUNNEL_PROCESS_WORKERS = 16   # Match RX_TX — 2 powerful CPUs handle this easily.
 
 TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
 
-DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.010   # 10 ms — lower than default 30 ms, no CPU spike.
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005   # 5 ms — proven value with 16 workers.
 
 # RX buffer: 4096 is sufficient. Larger = more memory, not more speed.
 RX_CHANNEL_SIZE = 4096
@@ -282,9 +282,9 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 # Tradeoff: more queries for ACKs = more resolver load, but during download
 # the resolvers would otherwise sit idle. Upload is unaffected because upload
 # data naturally generates queries.
-MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
+MAX_PACKETS_PER_BATCH = 45   # Proven: packing loop throttles upload burst, download still 8 Mbps via TCP ACK chain.
 
-ARQ_WINDOW_SIZE                 = 5000   # Proven stable with 16 Mbps upload at 250ms RTT.
+ARQ_WINDOW_SIZE                 = 5000   # Large window — burst controlled by SEND_RATE_LIMIT_PER_SECOND.
 ARQ_INITIAL_RTO_SECONDS         = 0.2    # Match ~200 ms real-world RTT.
 ARQ_MAX_RTO_SECONDS             = 1.5    # Don't backoff too far on loss.
 ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.4
@@ -305,7 +305,22 @@ ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
 
 
 # ------------------------------------------------------------------------------
-# 9) Logging
+# 9) Send Rate Limit
+#
+# Caps total DNS queries/second across all writer workers. Without this, 16
+# workers can burst to 60+ Mbps of DNS traffic, which Iranian DPI detects and
+# throttles everything to 0.01 Mbps (requires 10-15 min cooldown).
+#
+# 50000 queries/sec ≈ 50K × ~150 bytes = ~7.5 MB/s outbound — enough for full
+# download speed (TCP ACKs) while staying under the DPI anomaly threshold.
+# Set to 0 to disable (not recommended on Iranian paths).
+# Valid range: 1000–1000000 (clamped if out of range).
+# ------------------------------------------------------------------------------
+SEND_RATE_LIMIT_PER_SECOND = 50000
+
+
+# ------------------------------------------------------------------------------
+# 10) Logging
 # Use DEBUG briefly to diagnose problems; switch back to INFO for normal use.
 # ------------------------------------------------------------------------------
 LOG_LEVEL = "INFO"
@@ -317,28 +332,32 @@ LOG_LEVEL = "INFO"
 #
 # ┌──────────────────────────────────────────────────────────────────────────┐
 # │ Profile A — This file (2 powerful CPUs, 4GB RAM, lossy Iran path)         │
-# │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 2000                   │
-# │ MAX_PACKETS_PER_BATCH = 1 | PING_AGGRESSIVE/LAZY = 0.100               │
-# │ RX_TX_WORKERS = 4 | TUNNEL_PROCESS = 8 | POLL = 0.010                   │
+# │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 5000                   │
+# │ MAX_PACKETS_PER_BATCH = 45 | PING_AGGRESSIVE/LAZY = 0.100              │
+# │ RX_TX_WORKERS = 16 | TUNNEL_PROCESS = 16 | POLL = 0.005                │
+# │ SEND_RATE_LIMIT_PER_SECOND = 50000                                      │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile B — Very heavy loss / highly unstable path (> 30 % loss)         │
 # │ PACKET_DUPLICATION_COUNT       = 4                                       │
 # │ SETUP_PACKET_DUPLICATION_COUNT = 4                                       │
 # │ ARQ_INITIAL_RTO_SECONDS        = 0.15                                    │
+# │ SEND_RATE_LIMIT_PER_SECOND     = 30000  (less burst = less DPI risk)     │
 # │ SESSION_INIT_RACING_COUNT      = 5  (already set in this file)           │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile C — CPU-constrained (1–2 core Iran VPS or mobile)                │
 # │ → Use client_config_iran_uk_lite.toml instead                            │
-# │ UPLOAD_COMPRESSION_TYPE   = 0  (no compression — saves CPU)             │
+# │ UPLOAD_COMPRESSION_TYPE   = 2  (LZ4 — low CPU, good throughput)         │
 # │ RX_TX_WORKERS             = 2                                            │
 # │ TUNNEL_PROCESS_WORKERS    = 4                                            │
 # │ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.030                           │
+# │ SEND_RATE_LIMIT_PER_SECOND = 30000                                      │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile D — High-throughput (8-core VPS, low loss < 5 %)                 │
 # │ RX_TX_WORKERS             = 8                                            │
 # │ TUNNEL_PROCESS_WORKERS    = 14                                           │
 # │ DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005                           │
-# │ MAX_PACKETS_PER_BATCH     = 1  (still needed for download)               │
+# │ MAX_PACKETS_PER_BATCH     = 45                                           │
 # │ ARQ_WINDOW_SIZE           = 6000                                         │
+# │ SEND_RATE_LIMIT_PER_SECOND = 80000                                      │
 # └──────────────────────────────────────────────────────────────────────────┘
 # ==============================================================================

@@ -327,8 +327,13 @@ func (c *Client) StartAsyncRuntime(parentCtx context.Context) error {
 
 	c.tunnelConns = conns
 
-	c.log.Infof("\U0001F4E1 <cyan>Async Runtime Initialized: <green>%d RX/TX Workers</green>, <green>%d Processors</green></cyan>",
-		c.tunnelRX_TX_Workers, c.tunnelProcessWorkers)
+	if c.sendLimiter != nil {
+		c.log.Infof("\U0001F4E1 <cyan>Async Runtime Initialized: <green>%d RX/TX Workers</green>, <green>%d Processors</green>, <green>Send Rate Limit: %d/s</green></cyan>",
+			c.tunnelRX_TX_Workers, c.tunnelProcessWorkers, c.cfg.SendRateLimitPerSecond)
+	} else {
+		c.log.Infof("\U0001F4E1 <cyan>Async Runtime Initialized: <green>%d RX/TX Workers</green>, <green>%d Processors</green></cyan>",
+			c.tunnelRX_TX_Workers, c.tunnelProcessWorkers)
+	}
 
 	// Start TCP/SOCKS Proxy Listener
 	c.tcpListener = NewTCPListener(c, c.cfg.ProtocolType)
@@ -795,6 +800,9 @@ func (c *Client) asyncWriterWorker(ctx context.Context, id int, conn *net.UDPCon
 			for _, frame := range task.frames {
 				if frame.addr == nil || len(frame.packet) == 0 {
 					continue
+				}
+				if c.sendLimiter != nil {
+					c.sendLimiter.Take()
 				}
 				if _, err := conn.WriteToUDP(frame.packet, frame.addr); err == nil {
 					c.balancer.TrackResolverSend(

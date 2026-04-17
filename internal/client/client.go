@@ -134,6 +134,9 @@ type Client struct {
 
 	// SOCKS5 brute-force rate limiter
 	socksRateLimit *socksRateLimiter
+
+	// Global send rate limiter (DNS queries/sec)
+	sendLimiter *sendRateLimiter
 }
 
 // clientStreamTXPacket represents a queued packet pending transmission or retransmission.

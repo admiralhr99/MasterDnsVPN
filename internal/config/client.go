@@ -115,6 +115,7 @@ type ClientConfig struct {
 	ARQDataNackRepeatSeconds              float64           `toml:"ARQ_DATA_NACK_REPEAT_SECONDS"`
 	ARQTerminalDrainTimeoutSec            float64           `toml:"ARQ_TERMINAL_DRAIN_TIMEOUT_SECONDS"`
 	ARQTerminalAckWaitTimeoutSec          float64           `toml:"ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS"`
+	SendRateLimitPerSecond                int               `toml:"SEND_RATE_LIMIT_PER_SECOND"`
 	Resolvers                             []ResolverAddress `toml:"-"`
 	ResolverMap                           map[string]int    `toml:"-"`
 }
@@ -468,6 +469,9 @@ func finalizeClientConfig(cfg ClientConfig) (ClientConfig, error) {
 	cfg.SessionInitRetryMaxSeconds = clampFloat(defaultFloatAtMostZero(cfg.SessionInitRetryMaxSeconds, 60.0), cfg.SessionInitRetryBaseSeconds, 3600.0)
 	cfg.SessionInitBusyRetryIntervalSeconds = clampFloat(defaultFloatAtMostZero(cfg.SessionInitBusyRetryIntervalSeconds, 60.0), 1.0, 3600.0)
 	cfg.SessionInitRacingCount = clampInt(defaultIntBelow(cfg.SessionInitRacingCount, 1, 3), 1, 5)
+	if cfg.SendRateLimitPerSecond > 0 {
+		cfg.SendRateLimitPerSecond = clampInt(cfg.SendRateLimitPerSecond, 1000, 1000000)
+	}
 	cfg.MTUServersFileName = strings.TrimSpace(cfg.MTUServersFileName)
 	cfg.MTUServersFileFormat = strings.TrimSpace(cfg.MTUServersFileFormat)
 	cfg.MTUUsingSeparatorText = strings.TrimSpace(cfg.MTUUsingSeparatorText)

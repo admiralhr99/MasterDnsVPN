@@ -202,6 +202,14 @@ ARQ_TERMINAL_ACK_WAIT_TIMEOUT_SECONDS = 90.0
 
 
 # ------------------------------------------------------------------------------
-# 9) Logging
+# 9) Send Rate Limit
+# Lower than the 4-core profile to match 2-core throughput capacity.
+# Prevents DPI detection of bursty DNS traffic on Iranian paths.
+# ------------------------------------------------------------------------------
+SEND_RATE_LIMIT_PER_SECOND = 30000
+
+
+# ------------------------------------------------------------------------------
+# 10) Logging
 # ------------------------------------------------------------------------------
 LOG_LEVEL = "INFO"
