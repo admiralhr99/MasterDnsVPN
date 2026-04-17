@@ -196,12 +196,12 @@ MTU_REACTIVE_ADDED_SERVER_LOG_FORMAT  = "Resolver {IP} ({DOMAIN}) added back at 
 # more workers means less queuing delay for packet processing.
 # Users with 1-core servers commonly run 8 workers without issues.
 # ------------------------------------------------------------------------------
-RX_TX_WORKERS          = 8    # Max I/O concurrency for 24 resolvers.
-TUNNEL_PROCESS_WORKERS = 16   # 2× RX_TX — decrypt/decompress/ARQ in parallel.
+RX_TX_WORKERS          = 4    # Critical: 8 workers doubled burst rate → DPI throttle.
+TUNNEL_PROCESS_WORKERS = 8    # Slightly more than RX_TX for processing headroom.
 
 TUNNEL_PACKET_TIMEOUT_SECONDS = 10.0
 
-DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.005   # 5 ms — minimum latency on powerful CPU.
+DISPATCHER_IDLE_POLL_INTERVAL_SECONDS = 0.010   # 10 ms — lower than default 30 ms, no CPU spike.
 
 # RX buffer: 4096 is sufficient. Larger = more memory, not more speed.
 RX_CHANNEL_SIZE = 4096
@@ -284,7 +284,7 @@ PING_COLD_THRESHOLD_SECONDS = 15.0
 # data naturally generates queries.
 MAX_PACKETS_PER_BATCH = 1    # Disable packing — each ACK triggers a download response.
 
-ARQ_WINDOW_SIZE                 = 2000   # Limits upload burst to ~25K queries/sec (was 5000).
+ARQ_WINDOW_SIZE                 = 5000   # Proven stable with 16 Mbps upload at 250ms RTT.
 ARQ_INITIAL_RTO_SECONDS         = 0.2    # Match ~200 ms real-world RTT.
 ARQ_MAX_RTO_SECONDS             = 1.5    # Don't backoff too far on loss.
 ARQ_CONTROL_INITIAL_RTO_SECONDS = 0.4
@@ -319,7 +319,7 @@ LOG_LEVEL = "INFO"
 # │ Profile A — This file (2 powerful CPUs, 4GB RAM, lossy Iran path)         │
 # │ PACKET_DUPLICATION_COUNT = 3 | ARQ_WINDOW_SIZE = 2000                   │
 # │ MAX_PACKETS_PER_BATCH = 1 | PING_AGGRESSIVE/LAZY = 0.100               │
-# │ RX_TX_WORKERS = 8 | TUNNEL_PROCESS = 16 | POLL = 0.005                  │
+# │ RX_TX_WORKERS = 4 | TUNNEL_PROCESS = 8 | POLL = 0.010                   │
 # ├──────────────────────────────────────────────────────────────────────────┤
 # │ Profile B — Very heavy loss / highly unstable path (> 30 % loss)         │
 # │ PACKET_DUPLICATION_COUNT       = 4                                       │
